@@ -44,6 +44,7 @@ export interface ViewActions {
   toggleSound(): void;
   setVolume(v: number): void;
   setAutoClose(seconds: number): void;
+  setIslandSize(preset: string): void;
   openSettingsWindow(): void;
   blip(): void;
   /** Wardrobe click: keeps the outfit ("auto" and "none" included). */
@@ -854,7 +855,7 @@ function buildOverview(actions: ViewActions): ViewHost {
           ? "none"
           : "";
 
-      const visible = State.otherTasks.slice(0, 4);
+      const visible = State.otherTasks;
       const pillKey = visible.map((t) => `${t.id}:${t.color}:${t.pillBadge ?? ""}:${t.state}`).join("|");
       
       if (pillKey !== pillIds) {
@@ -1071,6 +1072,7 @@ function renderHealthModeCard(): HTMLElement {
 
 function renderMorningRecapCard(recap: import("../core/bridge").MorningRecapData): HTMLElement {
   const projectName = recap.lastProject.split("/").filter(Boolean).pop() || recap.lastProject;
+  const branchAndProj = `${recap.gitBranch} · ${projectName}`;
   return h(
     "div",
     { class: "int-card wf-card p6-recap-card" },
@@ -1079,7 +1081,7 @@ function renderMorningRecapCard(recap: import("../core/bridge").MorningRecapData
       { class: "int-head p6-card-head" },
       dot("#F59E0B", 7),
       h("b", { text: "🌅 Where did I leave off" }),
-      h("span", { text: `${recap.gitBranch} · ${projectName}` }),
+      h("span", { text: branchAndProj, title: branchAndProj }),
       h(
         "button",
         {
@@ -1096,9 +1098,9 @@ function renderMorningRecapCard(recap: import("../core/bridge").MorningRecapData
     h(
       "div",
       { class: "p6-recap-line" },
-      h("span", { class: "p6-chip", text: `📄 ${recap.lastFile}` }),
-      h("span", { class: "p6-chip", text: `🌿 ${recap.gitBranch}` }),
-      h("span", { class: "p6-chip p6-chip-task", text: `📌 ${recap.unfinishedTask}` }),
+      h("span", { class: "p6-chip", text: `📄 ${recap.lastFile}`, title: recap.lastFile }),
+      h("span", { class: "p6-chip", text: `🌿 ${recap.gitBranch}`, title: recap.gitBranch }),
+      h("span", { class: "p6-chip p6-chip-task", text: `📌 ${recap.unfinishedTask}`, title: recap.unfinishedTask }),
     ),
     h(
       "div",
@@ -1243,10 +1245,11 @@ function renderDesktopWindowCard(task: AgentTask, quoteText: string, detailText 
 
 function buildPill(task: AgentTask, actions: ViewActions): HTMLElement {
   const label = task.id === "integration_claude" ? "VS Code" : task.name;
+  const tooltip = task.windowCaption ? `${label} — ${task.windowCaption}` : label;
   const canvas = createMiniBot(task, 24);
   const pill = h(
     "div",
-    { class: "pill", onclick: () => actions.setFocus(task.id) },
+    { class: "pill", title: tooltip, onclick: () => actions.setFocus(task.id) },
     canvas,
     h("span", { class: "lbl", text: label }),
   );
@@ -1553,6 +1556,14 @@ function buildSettings(actions: ViewActions): ViewHost {
   const segButtons = [10, 15, 30].map((s) =>
     h("button", { onclick: () => actions.setAutoClose(s) }, `${s}s`),
   );
+  const sizePresets: { id: "compact" | "comfortable" | "large"; label: string }[] = [
+    { id: "compact", label: "Compact" },
+    { id: "comfortable", label: "Comfortable" },
+    { id: "large", label: "Large" },
+  ];
+  const sizeButtons = sizePresets.map((p) =>
+    h("button", { onclick: () => actions.setIslandSize(p.id) }, p.label),
+  );
   const claudeBadge = h("span", { class: "status-badge" });
   const apiBadge = h("span", { class: "status-badge" });
 
@@ -1566,6 +1577,12 @@ function buildSettings(actions: ViewActions): ViewHost {
       svg(ICONS.timer, 12),
       autoLabel,
       h("div", { class: "seg" }, ...segButtons),
+    ),
+    h(
+      "div",
+      { class: "settings-row" },
+      h("span", { text: "Island size" }),
+      h("div", { class: "seg" }, ...sizeButtons),
     ),
     h(
       "div",
@@ -1583,7 +1600,7 @@ function buildSettings(actions: ViewActions): ViewHost {
   );
 
   const el = h("div", { class: "view" },
-    card(null, h("div", { class: "stack", style: "padding:14px 16px 14px 84px" }, rows)));
+    card(null, h("div", { class: "stack", style: "padding:14px 16px 14px var(--card-left-pad, 122px)" }, rows)));
 
   return {
     el,
@@ -1594,6 +1611,8 @@ function buildSettings(actions: ViewActions): ViewHost {
       volume.style.opacity = s.soundEnabled ? "1" : "0.4";
       autoLabel.textContent = t("Auto-close · {seconds}s", { seconds: Math.round(s.autoCloseInterval) });
       segButtons.forEach((b, i) => b.classList.toggle("on", s.autoCloseInterval === [10, 15, 30][i]));
+      const activeSize = (s.islandSize || "comfortable").toLowerCase();
+      sizeButtons.forEach((b, i) => b.classList.toggle("on", activeSize === sizePresets[i].id));
       clear(claudeBadge);
       claudeBadge.append(
         dot(s.hooksInstalled ? "#22C55E" : "#F4505E", 6),

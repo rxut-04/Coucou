@@ -185,6 +185,8 @@ export interface Settings {
    * else English), or one of src/i18n's ten codes ("fr", "pt-BR", "zh-Hans"…).
    */
   language: string;
+  /** Island size preset ("compact" | "comfortable" | "large"), default "comfortable". */
+  islandSize: string;
   /** Mochi on the desktop. Rust owns it: whatever the page sends back is ignored. */
   desktopMochi?: {
     onDesktop: boolean;
@@ -216,6 +218,7 @@ export const DEFAULT_SETTINGS: Settings = {
   shortcuts: {},
   mochiOutfit: DEFAULT_OUTFIT,
   language: "",
+  islandSize: "comfortable",
 };
 
 function windowId(window: DesktopWindow): string {
@@ -455,6 +458,8 @@ class AppState {
   mouse = { x: 0, y: 0 };
   /** Cursor relative to the island's top-left corner. */
   mouseInIsland = { x: 0, y: 0 };
+  /** Logical dimensions of the monitor the island lives on (from Bridge.boot). */
+  screenSize = { width: 1920, height: 1080, scale: 1 };
 
   isPinned = false;
   paused = false;

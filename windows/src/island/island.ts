@@ -10,6 +10,12 @@ import {
   QUESTION_PICKER_H,
   type BotEmoteName, type IslandMode, type IslandViewName,
 } from "../core/layout";
+import {
+  applyIslandSizeCssVars,
+  getIslandSizeConfig,
+  resolveIslandSizePreset,
+  type IslandSizePreset,
+} from "../core/size-config";
 import { Sound } from "../core/sound";
 import { State } from "../core/state";
 import { BotEngine, hexToRGB } from "../mochi/engine";
@@ -86,6 +92,11 @@ export class Island {
   private wasInIsland = false;
   /** Last shape handed to Rust for the click-through test. */
   private pushedRect = { x: -1, y: -1, w: -1, h: -1 };
+  /** Current logical size of the native Tauri window. */
+  private windowSize = { w: PANEL_W, h: PANEL_H };
+  private lastTargetSize = { w: NOTCH_W, h: 0 };
+  private windowResizeTimer: number | null = null;
+  private resizeRafId: number | null = null;
 
   // Bot hover → love (IslandWindowController.botHoverIn)
   private botHovering = false;
@@ -114,6 +125,7 @@ export class Island {
   /** True while the island is open only because a workflow card opened it. */
   private workflowNoteOpened = false;
   private lastLayoutStressMode = "off";
+  private lastSizePreset: IslandSizePreset = "comfortable";
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -133,6 +145,17 @@ export class Island {
     State.subscribe(() => {
       this.dirty = true;
       this.ensureRunning();
+
+      const preset = resolveIslandSizePreset(State.settings.islandSize);
+      if (preset !== this.lastSizePreset) {
+        const prev = this.lastSizePreset;
+        this.lastSizePreset = preset;
+        applyIslandSizeCssVars(preset);
+        const shrunk =
+          getIslandSizeConfig(preset).minExpandedWidth <
+          getIslandSizeConfig(prev).minExpandedWidth;
+        this.animateGeometry(shrunk);
+      }
 
       if (State.layoutStressMode !== this.lastLayoutStressMode) {
         this.lastLayoutStressMode = State.layoutStressMode;
@@ -316,6 +339,19 @@ export class Island {
         void Bridge.saveSettings(State.settings);
         State.notify();
       },
+      setIslandSize: (preset) => {
+        const next = resolveIslandSizePreset(preset);
+        const prev = resolveIslandSizePreset(State.settings.islandSize);
+        State.settings.islandSize = next;
+        this.lastSizePreset = next;
+        applyIslandSizeCssVars(next);
+        void Bridge.saveSettings(State.settings);
+        const shrunk =
+          getIslandSizeConfig(next).minExpandedWidth <
+          getIslandSizeConfig(prev).minExpandedWidth;
+        this.animateGeometry(shrunk);
+        State.notify();
+      },
       openSettingsWindow: () => void Bridge.openSettingsWindow(),
       blip: () => Sound.play("blip"),
       chooseOutfit: (selection) => {
@@ -331,6 +367,9 @@ export class Island {
         State.notify();
       },
     };
+
+    applyIslandSizeCssVars(State.settings.islandSize);
+    this.lastSizePreset = resolveIslandSizePreset(State.settings.islandSize);
 
     this.wakeStrip = h("div", { id: "wake-strip" });
     this.botGlow = h("div", { id: "bot-glow" });
@@ -384,14 +423,25 @@ export class Island {
     if (typeof ResizeObserver !== "undefined") {
       const ro = new ResizeObserver(() => {
         if (State.mode !== "expanded") return;
-        const hh = this.currentHeaderHeight();
-        if (Math.abs(hh - this.lastHeaderHeight) >= 1) {
-          const shrunk = hh < this.lastHeaderHeight;
-          this.lastHeaderHeight = hh;
-          this.animateGeometry(shrunk);
-        }
+        if (this.resizeRafId != null) return;
+        this.resizeRafId = requestAnimationFrame(() => {
+          this.resizeRafId = null;
+          if (State.mode !== "expanded") return;
+          const hh = this.currentHeaderHeight();
+          const { w, h } = this.targetSize();
+          const headerChanged = Math.abs(hh - this.lastHeaderHeight) >= 1;
+          const sizeChanged =
+            Math.abs(w - this.lastTargetSize.w) >= 2 ||
+            Math.abs(h - this.lastTargetSize.h) >= 2;
+          if (headerChanged || sizeChanged) {
+            const shrunk = h < this.lastTargetSize.h && w <= this.lastTargetSize.w;
+            this.lastHeaderHeight = hh;
+            this.animateGeometry(shrunk);
+          }
+        });
       });
       ro.observe(this.header.el);
+      ro.observe(this.viewsEl);
     }
     this.applyGeometry();
   }
@@ -716,21 +766,105 @@ export class Island {
     return Math.max(34, measured);
   }
 
+  private measureOverviewContent(cfg = getIslandSizeConfig(State.settings.islandSize)): {
+    extraW: number;
+    bodyH: number;
+  } {
+    const overviewEl = this.views?.get("overview")?.el;
+    const minBodyH = Math.max(92, cfg.minOverviewHeight - 52);
+    if (!overviewEl) return { extraW: 0, bodyH: minBodyH };
+
+    const badges = this.header?.el?.querySelectorAll<HTMLElement>(".phase3-bar > .p3-pill");
+    const badgeCount = badges ? badges.length : 0;
+
+    const leftCardEl = overviewEl.querySelector<HTMLElement>(".left-body > *");
+    const leftScrollH = leftCardEl ? leftCardEl.scrollHeight : 0;
+
+    const pillCount = State.otherTasks.length;
+    const pillRows = Math.ceil(pillCount / 2);
+    const pillsNeededH =
+      pillRows > 0 ? pillRows * cfg.pillHeightPx + Math.max(0, pillRows - 1) * 6 + 20 : 0;
+
+    const rawBodyH = Math.max(minBodyH, leftScrollH + 6, pillsNeededH);
+    const bodyH = Math.min(cfg.maxCardContentHeight, rawBodyH);
+    const extraW = badgeCount >= 6 || pillCount >= 6 ? 60 : 0;
+    return { extraW, bodyH };
+  }
+
   private targetSize(): { w: number; h: number; r: number } {
-    let { w, h } = islandSize(State.mode, State.view, State.chatHistory.length);
-    if (State.mode === "expanded" && State.view === "question" && State.pendingApproval?.questions) {
-      h = QUESTION_PICKER_H;
-    }
-    if (State.mode === "expanded" && State.view !== "greeting") {
-      const extraHeader = Math.max(0, this.currentHeaderHeight() - 34);
-      h += extraHeader;
+    const cfg = getIslandSizeConfig(State.settings.islandSize);
+    let { w, h } = islandSize(
+      State.mode,
+      State.view,
+      State.chatHistory.length,
+      State.settings.islandSize,
+    );
+    if (State.mode === "expanded") {
+      const screenW = Math.max(1024, State.screenSize.width || window.screen.width || 1920);
+      const screenH = Math.max(640, State.screenSize.height || window.screen.height || 1080);
+      const maxW = Math.floor(screenW * cfg.maxWidthPercent);
+      const maxH = Math.floor(screenH * cfg.maxHeightPercent);
+      const hh = this.currentHeaderHeight();
+      const extraHeader = State.view !== "greeting" ? Math.max(0, hh - 34) : 0;
+
+      if (State.view === "question" && State.pendingApproval?.questions) {
+        h = Math.max(h, QUESTION_PICKER_H);
+      }
+      if (State.view === "overview") {
+        const { extraW, bodyH } = this.measureOverviewContent(cfg);
+        w = Math.max(w, cfg.minExpandedWidth + extraW);
+        h = Math.max(cfg.minOverviewHeight + extraHeader, bodyH + hh + 20);
+      } else if (State.view === "settings") {
+        const settingsStack = this.views?.get("settings")?.el?.querySelector<HTMLElement>(".stack");
+        const stackH = settingsStack ? settingsStack.scrollHeight + 20 : 168;
+        h = Math.max(h + extraHeader, stackH + hh + 20);
+      } else if (State.view !== "greeting") {
+        h += extraHeader;
+      }
+
+      w = Math.min(maxW, w);
+      h = Math.min(maxH, h);
     }
     const r = State.mode === "expanded" ? EXPANDED_CORNER : ROUNDED_CORNER;
     return { w, h, r };
   }
 
+  private scheduleWindowResize(targetW: number, targetH: number) {
+    const desiredW =
+      State.mode === "expanded"
+        ? Math.max(PANEL_W, Math.ceil(targetW + HIT_MARGIN * 2 + 12))
+        : PANEL_W;
+    const desiredH =
+      State.mode === "expanded"
+        ? Math.max(PANEL_H, Math.ceil(targetH + HIT_MARGIN * 2 + 16))
+        : PANEL_H;
+
+    if (
+      Math.abs(desiredW - this.windowSize.w) < 2 &&
+      Math.abs(desiredH - this.windowSize.h) < 2
+    ) {
+      return;
+    }
+
+    const growing = desiredW > this.windowSize.w || desiredH > this.windowSize.h;
+    if (this.windowResizeTimer != null) {
+      window.clearTimeout(this.windowResizeTimer);
+      this.windowResizeTimer = null;
+    }
+    this.windowResizeTimer = window.setTimeout(
+      () => {
+        this.windowResizeTimer = null;
+        this.windowSize = { w: desiredW, h: desiredH };
+        void Bridge.setWindowSize(desiredW, desiredH);
+      },
+      growing ? 16 : 240,
+    );
+  }
+
   private animateGeometry(shrinking: boolean) {
     const { w, h, r } = this.targetSize();
+    this.lastTargetSize = { w, h };
+    this.scheduleWindowResize(w, h);
     if (shrinking) {
       this.width.curveTowards(w);
       this.height.curveTowards(h);
@@ -758,7 +892,8 @@ export class Island {
     this.greetingCanvas.style.left = `${(w - EXPANDED_W) / 2}px`;
     this.uploadCanvas.el.style.left = `${(w - EXPANDED_W) / 2}px`;
 
-    const rect = { x: (PANEL_W - w) / 2, y: 0, w, h: hh };
+    const viewportW = window.innerWidth || this.windowSize.w || PANEL_W;
+    const rect = { x: Math.max(0, (viewportW - w) / 2), y: 0, w, h: hh };
     const p = this.pushedRect;
     if (Math.abs(p.x - rect.x) > 0.5 || Math.abs(p.w - rect.w) > 0.5 || Math.abs(p.h - rect.h) > 0.5) {
       this.pushedRect = rect;
@@ -766,11 +901,12 @@ export class Island {
     }
   }
 
-  /** Island rect in window coordinates (origin top-left of the 720×320 window). */
+  /** Island rect in window coordinates (origin top-left of the native window). */
   private islandRect(): { x: number; y: number; w: number; h: number } {
     const w = this.width.value;
     const hh = this.height.value;
-    return { x: (PANEL_W - w) / 2, y: 0, w, h: hh };
+    const viewportW = window.innerWidth || this.windowSize.w || PANEL_W;
+    return { x: Math.max(0, (viewportW - w) / 2), y: 0, w, h: hh };
   }
 
   // ── Window collapse (hidden → tiny wake strip, zero polling) ────────────────
@@ -1090,6 +1226,7 @@ export class Island {
       this.height.value,
       State.uploadProgress,
       this.currentHeaderHeight(),
+      State.settings.islandSize,
     );
     this.botCx.target = p.cx;
     this.botCy.target = p.cy;
@@ -1231,8 +1368,13 @@ export class Island {
 
     if (expanded) {
       const hh = this.currentHeaderHeight();
-      if (Math.abs(hh - this.lastHeaderHeight) >= 1) {
-        const shrunk = hh < this.lastHeaderHeight;
+      const { w, h } = this.targetSize();
+      const headerChanged = Math.abs(hh - this.lastHeaderHeight) >= 1;
+      const sizeChanged =
+        Math.abs(w - this.lastTargetSize.w) >= 2 ||
+        Math.abs(h - this.lastTargetSize.h) >= 2;
+      if (headerChanged || sizeChanged) {
+        const shrunk = h < this.lastTargetSize.h && w <= this.lastTargetSize.w;
         this.lastHeaderHeight = hh;
         this.animateGeometry(shrunk);
       }
@@ -1281,6 +1423,9 @@ export class Island {
     Sound.setEnabled(State.settings.soundEnabled);
     Sound.setVolume(State.settings.soundVolume);
     this.fsm.homeToPetitDelay = State.settings.autoCloseInterval;
+    applyIslandSizeCssVars(State.settings.islandSize);
+    this.lastSizePreset = resolveIslandSizePreset(State.settings.islandSize);
+    this.animateGeometry(false);
     State.notify();
   }
 

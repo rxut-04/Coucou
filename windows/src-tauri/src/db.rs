@@ -1732,6 +1732,8 @@ pub fn morning_recap_dismiss(db: State<'_, DbState>) -> bool {
 pub struct LayoutStressState {
     pub enabled: bool,
     pub mode: String,
+    #[serde(default)]
+    pub size_preset: Option<String>,
     pub updated_at: i64,
 }
 
@@ -1758,13 +1760,17 @@ pub fn read_layout_stress_state() -> LayoutStressState {
     LayoutStressState {
         enabled: false,
         mode: "off".to_string(),
+        size_preset: None,
         updated_at: 0,
     }
 }
 
-pub fn write_layout_stress_state(mode: &str) -> LayoutStressState {
+pub fn write_layout_stress_state(mode: &str, size_preset: Option<&str>) -> LayoutStressState {
     let clean = mode.trim().to_ascii_lowercase();
     let enabled = !matches!(clean.as_str(), "off" | "false" | "0" | "none");
+    let preset = size_preset
+        .map(|s| s.trim().to_ascii_lowercase())
+        .filter(|s| matches!(s.as_str(), "compact" | "comfortable" | "large"));
     let state = LayoutStressState {
         enabled,
         mode: if enabled {
@@ -1776,6 +1782,7 @@ pub fn write_layout_stress_state(mode: &str) -> LayoutStressState {
         } else {
             "off".to_string()
         },
+        size_preset: preset,
         updated_at: unix_now(),
     };
     let path = layout_stress_cache_path();
@@ -1794,8 +1801,8 @@ pub fn layout_stress_test_status() -> LayoutStressState {
 }
 
 #[tauri::command]
-pub fn layout_stress_test_set(mode: String) -> LayoutStressState {
-    write_layout_stress_state(&mode)
+pub fn layout_stress_test_set(mode: String, size_preset: Option<String>) -> LayoutStressState {
+    write_layout_stress_state(&mode, size_preset.as_deref())
 }
 
 #[tauri::command]
@@ -1825,7 +1832,8 @@ pub fn handle_cli_args() -> bool {
 
     if first == "--layout-stress-test" {
         let mode = args.get(1).map(|s| s.as_str()).unwrap_or("on");
-        let state = write_layout_stress_state(mode);
+        let size_preset = args.get(2).map(|s| s.as_str());
+        let state = write_layout_stress_state(mode, size_preset);
         println!(
             "{}",
             serde_json::to_string_pretty(&serde_json::json!({

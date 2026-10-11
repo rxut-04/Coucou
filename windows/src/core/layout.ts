@@ -50,17 +50,17 @@ export interface ViewLayout {
   agentMode: AgentLayoutMode;
 }
 
-// The window is a fixed 720×320 (largest view) like the macOS panel; the island is
-// drawn inside it, glued to the top edge and horizontally centred.
-export const PANEL_W = 720;
-export const PANEL_H = 320;
+import { getIslandSizeConfig } from "./size-config";
+
+// Default panel dimensions for Comfortable preset; grown dynamically via ResizeObserver.
+export const PANEL_W = 960;
+export const PANEL_H = 380;
 
 // No notch on a PC: these are the hidden/compact sizes from docs/SPEC.md.
-// CUSTOMIZED: Made island bigger for better visibility
 export const NOTCH_W = 220;
-export const NOTCH_H = 40;
-export const COMPACT_W = 340; // NOTCH_W + 120
-export const EXPANDED_W = 720;
+export const NOTCH_H = 44;
+export const COMPACT_W = 370;
+export const EXPANDED_W = 960;
 
 export const ROUNDED_CORNER = 14; // hidden / compact
 export const EXPANDED_CORNER = 22;
@@ -70,30 +70,30 @@ export const WAKE_STRIP_W = 240;
 export const WAKE_STRIP_H = 6;
 
 export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
-  overview: { height: 160, botX: 68, botY: null, botDiameter: 58, agentMode: "pills" },
-  empty: { height: 160, botX: 70, botY: null, botDiameter: 62, agentMode: "none" },
-  approval: { height: 160, botX: 62, botY: null, botDiameter: 56, agentMode: "column" },
-  question: { height: 160, botX: 62, botY: null, botDiameter: 56, agentMode: "column" },
-  error: { height: 160, botX: 62, botY: null, botDiameter: 58, agentMode: "column" },
-  finished: { height: 160, botX: 62, botY: null, botDiameter: 58, agentMode: "column" },
-  confused: { height: 160, botX: 76, botY: null, botDiameter: 66, agentMode: "column" },
-  upload: { height: 176, botX: 140, botY: 104, botDiameter: 62, agentMode: "column" },
+  overview: { height: 204, botX: 74, botY: null, botDiameter: 66, agentMode: "pills" },
+  empty: { height: 184, botX: 74, botY: null, botDiameter: 66, agentMode: "none" },
+  approval: { height: 184, botX: 68, botY: null, botDiameter: 60, agentMode: "column" },
+  question: { height: 184, botX: 68, botY: null, botDiameter: 60, agentMode: "column" },
+  error: { height: 184, botX: 68, botY: null, botDiameter: 62, agentMode: "column" },
+  finished: { height: 184, botX: 68, botY: null, botDiameter: 62, agentMode: "column" },
+  confused: { height: 184, botX: 78, botY: null, botDiameter: 68, agentMode: "column" },
+  upload: { height: 184, botX: 140, botY: 104, botDiameter: 62, agentMode: "column" },
   // botY 103 = bar top (42 + 58) + 3, so the dot really rides the bar. The Swift
   // layout says 118 while its own comment says 103; the comment matches the spec.
-  uploading: { height: 176, botX: 46, botY: 103, botDiameter: 20, agentMode: "none" },
-  choose: { height: 176, botX: 60, botY: 101, botDiameter: 52, agentMode: "column" },
-  mail: { height: 240, botX: 56, botY: null, botDiameter: 46, agentMode: "column" },
-  prompt: { height: 160, botX: 52, botY: null, botDiameter: 44, agentMode: "column" },
-  searching: { height: 160, botX: 52, botY: null, botDiameter: 44, agentMode: "column" },
-  result: { height: 160, botX: 52, botY: null, botDiameter: 44, agentMode: "column" },
-  note: { height: 160, botX: 60, botY: null, botDiameter: 50, agentMode: "column" },
-  settings: { height: 160, botX: 54, botY: null, botDiameter: 46, agentMode: "none" },
+  uploading: { height: 184, botX: 46, botY: 103, botDiameter: 20, agentMode: "none" },
+  choose: { height: 184, botX: 66, botY: 101, botDiameter: 56, agentMode: "column" },
+  mail: { height: 240, botX: 62, botY: null, botDiameter: 50, agentMode: "column" },
+  prompt: { height: 204, botX: 58, botY: null, botDiameter: 50, agentMode: "column" },
+  searching: { height: 184, botX: 58, botY: null, botDiameter: 50, agentMode: "column" },
+  result: { height: 184, botX: 58, botY: null, botDiameter: 50, agentMode: "column" },
+  note: { height: 184, botX: 66, botY: null, botDiameter: 56, agentMode: "column" },
+  settings: { height: 210, botX: 60, botY: null, botDiameter: 52, agentMode: "none" },
   greeting: { height: 150, botX: 320, botY: 90, botDiameter: 0, agentMode: "none" },
   // Mac: 160. The extra 24 hold the two lines with top agent, project, busiest
   // day, longest session, permissions and questions, which the Mac card leaves
   // to the shared image.
-  recap: { height: 184, botX: 62, botY: null, botDiameter: 58, agentMode: "column" },
-  wardrobe: { height: 160, botX: 68, botY: null, botDiameter: 58, agentMode: "none" },
+  recap: { height: 204, botX: 68, botY: null, botDiameter: 62, agentMode: "column" },
+  wardrobe: { height: 184, botX: 74, botY: null, botDiameter: 64, agentMode: "none" },
 };
 
 // The upload views above are only the fallback geometry. Once a file is actually
@@ -101,28 +101,38 @@ export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
 // owns its own constants (USC) straight from UploadSequenceEngine.swift.
 
 /** The question view with options to pick from: room for two rows of them. */
-export const QUESTION_PICKER_H = 200;
+export const QUESTION_PICKER_H = 220;
 
 /** Chat view grows with the conversation — IslandContainer.chatPromptHeight. */
 export function chatPromptHeight(messageCount: number): number {
-  return Math.min(300, 240 + messageCount * 40);
+  return Math.min(340, 250 + messageCount * 40);
 }
 
 export function islandSize(
   mode: IslandMode,
   view: IslandViewName,
   chatCount = 0,
+  sizePreset = "comfortable",
 ): { w: number; h: number } {
+  const cfg = getIslandSizeConfig(sizePreset);
   switch (mode) {
     case "hidden":
       // No notch to hide inside on a PC: the island retracts to zero height and
       // slides into the top edge of the screen instead of sitting there as a bar.
       return { w: NOTCH_W, h: 0 };
     case "compact":
-      return { w: COMPACT_W, h: NOTCH_H };
+      return { w: cfg.compactNotchWidth, h: cfg.compactNotchHeight };
     case "expanded": {
-      const h = view === "prompt" ? chatPromptHeight(chatCount) : VIEW_LAYOUTS[view].height;
-      return { w: EXPANDED_W, h };
+      if (view === "greeting") {
+        return { w: 720, h: VIEW_LAYOUTS.greeting.height };
+      }
+      const baseH =
+        view === "prompt"
+          ? chatPromptHeight(chatCount)
+          : view === "overview"
+            ? cfg.minOverviewHeight
+            : Math.max(VIEW_LAYOUTS[view].height, cfg.minOverviewHeight - 16);
+      return { w: cfg.minExpandedWidth, h: baseH };
     }
   }
 }
@@ -141,15 +151,22 @@ export function botPosition(
   islandH: number,
   uploadProgress = 0,
   headerH = 34,
+  sizePreset = "comfortable",
 ): BotPlacement {
+  const cfg = getIslandSizeConfig(sizePreset);
   switch (mode) {
     case "hidden":
       return { cx: 46, cy: 16, diameter: 6, opacity: 0 };
     case "compact":
-      return { cx: 40, cy: NOTCH_H / 2, diameter: 20, opacity: 1 };
+      return { cx: 42, cy: cfg.compactNotchHeight / 2, diameter: 22, opacity: 1 };
     case "expanded": {
       const layout = VIEW_LAYOUTS[view];
       const extraHeader = Math.max(0, headerH - 34);
+      const botX = view === "overview" || view === "empty" || view === "wardrobe" ? cfg.botX : layout.botX;
+      const botDiameter =
+        view === "overview" || view === "empty" || view === "wardrobe"
+          ? cfg.avatarDiameter
+          : Math.round(layout.botDiameter * cfg.baseFontScale);
       if (view === "uploading") {
         return {
           cx: 36 + uploadProgress * 526,
@@ -159,13 +176,13 @@ export function botPosition(
         };
       }
       if (layout.botY != null) {
-        return { cx: layout.botX, cy: layout.botY + extraHeader, diameter: layout.botDiameter, opacity: 1 };
+        return { cx: botX, cy: layout.botY + extraHeader, diameter: botDiameter, opacity: 1 };
       }
-      // Centre of the card below the dynamic header (8 pt top inset + headerH)
+      // Centre of the card area below the dynamic header (8 pt top inset + headerH)
       const headerBottom = 8 + Math.max(34, headerH);
-      const cardH = 84;
-      const cy = headerBottom + (islandH - headerBottom - cardH) / 2 + cardH / 2;
-      return { cx: layout.botX, cy, diameter: layout.botDiameter, opacity: 1 };
+      const bodySpace = Math.max(84, islandH - headerBottom - 10);
+      const cy = headerBottom + bodySpace / 2;
+      return { cx: botX, cy, diameter: botDiameter, opacity: 1 };
     }
   }
 }

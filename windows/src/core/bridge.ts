@@ -48,6 +48,10 @@ export const Bridge = {
   setIslandRect: (x: number, y: number, width: number, height: number) =>
     call<void>("set_island_rect", { x, y, width, height }),
 
+  /** Dynamically resize the native Tauri / Wayland layer-shell window to match island content. */
+  setWindowSize: (width: number, height: number) =>
+    call<void>("set_window_size", { width, height }),
+
   /** Give the window keyboard focus (chat field) and take it away again. */
   focusWindow: (focused: boolean) => call<void>("focus_window", { focused }),
 
@@ -248,8 +252,8 @@ export const Bridge = {
   // ── Phase 8: Daily Score, XP, Levels, Streaks, Weekly Insight & Chart ─────
   statsDashboardGet: () => call<StatsDashboardData>("stats_dashboard_get"),
   layoutStressTestStatus: () => call<LayoutStressState>("layout_stress_test_status"),
-  layoutStressTestSet: (mode: string) =>
-    call<LayoutStressState>("layout_stress_test_set", { mode }),
+  layoutStressTestSet: (mode: string, sizePreset?: string) =>
+    call<LayoutStressState>("layout_stress_test_set", { mode, sizePreset }),
 
   // ── Mochi on the desktop (src-tauri/src/desktop.rs) ───────────────────────
   desktopInfo: () => call<DesktopInfo>("desktop_mochi_info"),
@@ -308,6 +312,7 @@ export interface StatsDashboardData {
 export interface LayoutStressState {
   enabled: boolean;
   mode: string;
+  sizePreset?: string | null;
   updatedAt: number;
 }
 

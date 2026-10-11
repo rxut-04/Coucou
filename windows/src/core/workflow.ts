@@ -784,6 +784,10 @@ class WorkflowEngine {
       const mode = st.enabled ? st.mode : "off";
       State.layoutStressMode = mode;
 
+      if (st.sizePreset && (st.sizePreset === "compact" || st.sizePreset === "comfortable" || st.sizePreset === "large")) {
+        State.settings.islandSize = st.sizePreset;
+      }
+
       if (mode === "off") {
         State.stressExtraBadges = [];
         State.showingMorningRecap = false;

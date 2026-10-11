@@ -1,7 +1,7 @@
 // Entry point: boot the bridge, wire the island, start the greeting.
 
 import "./style.css";
-import { Bridge, IS_TAURI, onEvent } from "./core/bridge";
+import { Bridge, IS_TAURI, onEvent, type DesktopWindow } from "./core/bridge";
 import { Sound } from "./core/sound";
 import { State, type Settings } from "./core/state";
 import { Island } from "./island/island";
@@ -10,6 +10,9 @@ import { registerIntegrationHandlers, refreshConfigured } from "./island/integra
 import { registerShortcutHandlers } from "./island/shortcuts";
 import { Recap } from "./recap/recap";
 import { onLanguageChange, resolveLanguage, setLanguage, systemLanguages } from "./i18n/i18n";
+// Side-effect import: initializes workflow tracking
+import "./core/workflow";
+// import { Workflow } from "./core/workflow"; // Exported for settings UI only
 
 /** Shows the language Settings asks for ("" = the system's, when Coucou has it). */
 function applyLanguage() {
@@ -27,6 +30,13 @@ async function main() {
   const boot = await Bridge.boot();
   if (boot) {
     State.settings = { ...State.settings, ...boot.settings };
+    if (boot.screen && boot.screen.width > 0 && boot.screen.height > 0) {
+      State.screenSize = {
+        width: boot.screen.width,
+        height: boot.screen.height,
+        scale: boot.screen.scale || 1,
+      };
+    }
   }
   // A language change redraws the island in place: the texts given as tl(…)
   // relabel themselves (views/dom.ts) and the views redraw the rest on this
@@ -37,6 +47,22 @@ async function main() {
   void Bridge.setSystemLanguages(systemLanguages());
   island.applySettings();
   State.loadIntegrationTasks();
+  let windowPollFailed = false;
+  const refreshWindows = async () => {
+    if (!IS_TAURI) return;
+    const windows = await Bridge.focusTrackerWindows();
+    if (windows === null) {
+      if (!windowPollFailed) {
+        console.error("[coucou] focus_tracker_windows failed; retaining the last known desktop window list");
+      }
+      windowPollFailed = true;
+      return;
+    }
+    windowPollFailed = false;
+    State.applyDesktopWindows(windows);
+  };
+  await refreshWindows();
+  window.setInterval(() => void refreshWindows(), 5_000);
   if (boot && !boot.cursorPoll) island.followPageCursor();
   await island.desktop.init();
 
@@ -77,6 +103,9 @@ async function main() {
   });
 
   await onEvent<null>("screen-changed", () => void Bridge.reposition());
+  await onEvent<DesktopWindow[]>("windows-changed", (windows) => {
+    if (windows) State.applyDesktopWindows(windows);
+  });
 
   // The settings window writes preferences; apply them here without a restart.
   await onEvent<Settings>("settings-changed", (s) => {
@@ -94,6 +123,8 @@ async function main() {
   registerIntegrationHandlers(island);
   registerShortcutHandlers(island, () => setPaused(false));
 
+  // App timers and motivational quotes start automatically via workflow.ts import.
+  
   // Monday recap: app start (greeting over), an agent starting work, waking up.
   const checkRecap = () => void Recap.check(island);
   island.onGreetingDone = checkRecap;

@@ -17,6 +17,8 @@ import {
 import { h, clear } from "../views/dom";
 import { agentsSection } from "./agents";
 import { renderDiff, statusDot } from "./parts";
+import { Power } from "../core/power";
+import { Workflow } from "../core/workflow";
 import {
   LANGUAGES, N_, isRtl, onLanguageChange, resolveLanguage, setLanguage, systemLanguages, t, tn,
 } from "../i18n/i18n";
@@ -851,6 +853,332 @@ function integrationsSection(present: Record<string, boolean>): HTMLElement {
   return h("section", {}, h("h2", {}, h("span", { text: t("Integrations") })), note, list);
 }
 
+// ── OpenCode section ───────────────────────────────────────────────────────────
+
+const OPENCODE_PLUGIN_PATH = "~/.config/opencode/plugins/coucou.js";
+
+function openCodeSection(): HTMLElement {
+  const body = h("div", { style: "display:flex;flex-direction:column;gap:12px" });
+  const section = h(
+    "section",
+    {},
+    h("h2", {}, h("span", { text: "OpenCode" })),
+    body,
+  );
+
+  function draw() {
+    clear(body);
+    body.append(
+      h("div", {
+        class: "hint",
+        text: "OpenCode sessions appear in the island with live tool steps and notifications when output is ready. The plugin is installed automatically.",
+      }),
+      h("div", { class: "row" },
+        h("label", { text: "Plugin" }),
+        h("span", { class: "path", text: OPENCODE_PLUGIN_PATH }),
+        statusDot(true),
+      ),
+      h("div", { class: "row" },
+        h("label", { text: "Multi-session" }),
+        h("span", { class: "hint", text: "You are notified when any OpenCode session produces output, even across multiple VS Code windows." }),
+      ),
+    );
+  }
+
+  draw();
+  return section;
+}
+
+// ── Workflow Settings section ──────────────────────────────────────────────────
+
+function workflowSection(): HTMLElement {
+  const body = h("div", { style: "display:flex;flex-direction:column;gap:12px" });
+  const section = h("section", {}, h("h2", {}, h("span", { text: "Workflow Timers" })), body);
+
+  function draw() {
+    clear(body);
+    const s = Workflow.settings;
+
+    // VS Code timer
+    const vscodeToggle = h("button", { class: s.vscodeEnabled ? "switch on" : "switch" });
+    vscodeToggle.addEventListener("click", () => {
+      Workflow.updateSettings({ vscodeEnabled: !s.vscodeEnabled });
+      draw();
+    });
+    const vscodeLimit = h("input", {
+      type: "number", min: "5", max: "120", step: "5",
+      value: String(s.vscodeLimitMinutes),
+      style: "width:60px",
+    }) as HTMLInputElement;
+    vscodeLimit.addEventListener("change", () => {
+      Workflow.updateSettings({ vscodeLimitMinutes: Math.max(5, Math.min(120, Number(vscodeLimit.value) || 25)) });
+    });
+
+    // Browser timer
+    const browserToggle = h("button", { class: s.browserEnabled ? "switch on" : "switch" });
+    browserToggle.addEventListener("click", () => {
+      Workflow.updateSettings({ browserEnabled: !s.browserEnabled });
+      draw();
+    });
+    const browserLimit = h("input", {
+      type: "number", min: "5", max: "120", step: "5",
+      value: String(s.browserLimitMinutes),
+      style: "width:60px",
+    }) as HTMLInputElement;
+    browserLimit.addEventListener("change", () => {
+      Workflow.updateSettings({ browserLimitMinutes: Math.max(5, Math.min(120, Number(browserLimit.value) || 30)) });
+    });
+
+    // Terminal detection
+    const terminalToggle = h("button", { class: s.terminalEnabled ? "switch on" : "switch" });
+    terminalToggle.addEventListener("click", () => {
+      Workflow.updateSettings({ terminalEnabled: !s.terminalEnabled });
+      draw();
+    });
+
+    // Motivational quotes
+    const quotesToggle = h("button", { class: s.quotesEnabled ? "switch on" : "switch" });
+    quotesToggle.addEventListener("click", () => {
+      Workflow.updateSettings({ quotesEnabled: !s.quotesEnabled });
+      draw();
+    });
+    const quotesInterval = h("input", {
+      type: "number", min: "1", max: "60", step: "1",
+      value: String(s.quotesIntervalMinutes),
+      style: "width:60px",
+    }) as HTMLInputElement;
+    quotesInterval.addEventListener("change", () => {
+      Workflow.updateSettings({ quotesIntervalMinutes: Math.max(1, Math.min(60, Number(quotesInterval.value) || 1)) });
+    });
+
+    // Focus reminder
+    const workToggle = h("button", { class: s.workNotificationEnabled ? "switch on" : "switch" });
+    workToggle.addEventListener("click", () => {
+      Workflow.updateSettings({ workNotificationEnabled: !s.workNotificationEnabled });
+      draw();
+    });
+    const workInterval = h("input", {
+      type: "number", min: "1", max: "120", step: "1",
+      value: String(s.workNotificationMinutes),
+      style: "width:60px",
+    }) as HTMLInputElement;
+    workInterval.addEventListener("change", () => {
+      Workflow.updateSettings({ workNotificationMinutes: Math.max(1, Math.min(120, Number(workInterval.value) || 5)) });
+    });
+
+    body.append(
+      h("div", { class: "hint", text: "Track your work habits and get notified when it's time to switch tasks." }),
+
+      h("h3", { text: "VS Code Timer" }),
+      h("div", { class: "row" }, h("label", { text: "Enable" }), vscodeToggle),
+      h("div", { class: "row" },
+        h("label", { text: "Limit" }),
+        vscodeLimit,
+        h("span", { class: "hint", text: "minutes" }),
+      ),
+      h("div", { class: "row" },
+        h("label", { text: "Message" }),
+        h("span", { class: "hint", text: `"${s.vscodeBreakMessage}" — shows for ${s.vscodeBreakDuration}s` }),
+      ),
+
+      h("h3", { text: "Browser Timer" }),
+      h("div", { class: "row" }, h("label", { text: "Enable" }), browserToggle),
+      h("div", { class: "row" },
+        h("label", { text: "Limit" }),
+        browserLimit,
+        h("span", { class: "hint", text: "minutes" }),
+      ),
+      h("div", { class: "row" },
+        h("label", { text: "Message" }),
+        h("span", { class: "hint", text: `"${s.browserMessage}" — repeats every ${s.browserReminderInterval}min` }),
+      ),
+
+      h("h3", { text: "Terminal Detection" }),
+      h("div", { class: "row" }, h("label", { text: "Enable" }), terminalToggle),
+      h("div", { class: "row" },
+        h("label", { text: "Message" }),
+        h("span", { class: "hint", text: `"${s.terminalMessage}" — when a command of ${s.terminalMinDuration}s or more finishes` }),
+      ),
+
+      h("h3", { text: "Motivational Quotes" }),
+      h("div", { class: "row" }, h("label", { text: "Enable" }), quotesToggle),
+      h("div", { class: "row" },
+        h("label", { text: "Every" }),
+        quotesInterval,
+        h("span", { class: "hint", text: "minutes" }),
+      ),
+
+      h("h3", { text: "Focus Reminder" }),
+      h("div", { class: "row" }, h("label", { text: "Enable" }), workToggle),
+      h("div", { class: "row" },
+        h("label", { text: "Every" }),
+        workInterval,
+        h("span", { class: "hint", text: "minutes of continuous work" }),
+      ),
+
+      h("div", { class: "hint", text: "The active app and how long you have been in it are shown on the island itself." }),
+    );
+  }
+
+  draw();
+  return section;
+}
+
+// ── Power Settings section ─────────────────────────────────────────────────────
+
+function powerSection(): HTMLElement {
+  const body = h("div", { style: "display:flex;flex-direction:column;gap:12px" });
+  const section = h("section", {}, h("h2", {}, h("span", { text: "Power Features" })), body);
+
+  function draw() {
+    clear(body);
+    const s = Power.settings;
+    const n = s.notifications;
+
+    // Desktop notifications toggle
+    const notifToggle = h("button", { class: n.desktopNotifications ? "switch on" : "switch" });
+    notifToggle.addEventListener("click", () => {
+      Power.updateNotificationRules({ desktopNotifications: !n.desktopNotifications });
+      draw();
+    });
+
+    // Sound on notification toggle
+    const soundToggle = h("button", { class: n.soundOnNotification ? "switch on" : "switch" });
+    soundToggle.addEventListener("click", () => {
+      Power.updateNotificationRules({ soundOnNotification: !n.soundOnNotification });
+      draw();
+    });
+
+    // Flash on notification toggle
+    const flashToggle = h("button", { class: n.flashOnNotification ? "switch on" : "switch" });
+    flashToggle.addEventListener("click", () => {
+      Power.updateNotificationRules({ flashOnNotification: !n.flashOnNotification });
+      draw();
+    });
+
+    // Cooldown
+    const cooldown = h("input", {
+      type: "number", min: "0", max: "60", step: "1",
+      value: String(n.cooldownSeconds),
+      style: "width:60px",
+    }) as HTMLInputElement;
+    cooldown.addEventListener("change", () => {
+      Power.updateNotificationRules({ cooldownSeconds: Math.max(0, Math.min(60, Number(cooldown.value) || 0)) });
+    });
+
+    // Quiet hours
+    const quietStart = h("input", {
+      type: "number", min: "0", max: "23", step: "1",
+      value: String(n.quietHoursStart),
+      style: "width:50px",
+    }) as HTMLInputElement;
+    quietStart.addEventListener("change", () => {
+      Power.updateNotificationRules({ quietHoursStart: Math.max(0, Math.min(23, Number(quietStart.value) || 0)) });
+    });
+    const quietEnd = h("input", {
+      type: "number", min: "0", max: "23", step: "1",
+      value: String(n.quietHoursEnd),
+      style: "width:50px",
+    }) as HTMLInputElement;
+    quietEnd.addEventListener("change", () => {
+      Power.updateNotificationRules({ quietHoursEnd: Math.max(0, Math.min(23, Number(quietEnd.value) || 0)) });
+    });
+
+    // Logging toggle
+    const logToggle = h("button", { class: s.enableLogging ? "switch on" : "switch" });
+    logToggle.addEventListener("click", () => {
+      Power.settings.enableLogging = !s.enableLogging;
+      Power.saveSettings();
+      draw();
+    });
+
+    // Analytics toggle
+    const analyticsToggle = h("button", { class: s.enableAnalytics ? "switch on" : "switch" });
+    analyticsToggle.addEventListener("click", () => {
+      Power.settings.enableAnalytics = !s.enableAnalytics;
+      Power.saveSettings();
+      draw();
+    });
+
+    // Export buttons
+    const exportMd = h("button", { text: "Export as Markdown" });
+    exportMd.addEventListener("click", () => {
+      const md = Power.exportSessionAsMarkdown();
+      Power.downloadFile(md, `coucou-session-${new Date().toISOString().slice(0, 10)}.md`, "text/markdown");
+    });
+    const exportJson = h("button", { text: "Export Logs as JSON" });
+    exportJson.addEventListener("click", () => {
+      const json = Power.exportLogsAsJSON();
+      Power.downloadFile(json, `coucou-logs-${new Date().toISOString().slice(0, 10)}.json`, "application/json");
+    });
+    const clearLogs = h("button", { class: "danger", text: "Clear Logs" });
+    clearLogs.addEventListener("click", () => {
+      Power.clearLogs();
+      clearLogs.textContent = "Logs cleared";
+      setTimeout(() => { clearLogs.textContent = "Clear Logs"; }, 2000);
+    });
+
+    // Quick replies
+    const qrList = h("div", { style: "display:flex;flex-direction:column;gap:6px" });
+    for (const qr of Power.getQuickReplies()) {
+      const row = h("div", { class: "row" },
+        h("span", { text: qr.label, style: "min-width:80px" }),
+        h("span", { class: "hint", text: qr.text, style: "flex:1" }),
+        h("button", {
+          class: "danger", text: "×",
+          onclick: () => { Power.removeQuickReply(qr.id); draw(); },
+        }),
+      );
+      qrList.append(row);
+    }
+    const newLabel = h("input", { placeholder: "Label", style: "width:100px" }) as HTMLInputElement;
+    const newText = h("input", { placeholder: "Reply text", style: "flex:1" }) as HTMLInputElement;
+    const addQr = h("button", { class: "primary", text: "Add" });
+    addQr.addEventListener("click", () => {
+      if (newLabel.value.trim() && newText.value.trim()) {
+        Power.addQuickReply(newLabel.value.trim(), newText.value.trim());
+        draw();
+      }
+    });
+
+    body.append(
+      h("div", { class: "hint", text: "Desktop notifications, sound alerts, session export, quick replies, logging and analytics." }),
+
+      h("h3", { text: "Notifications" }),
+      h("div", { class: "row" }, h("label", { text: "Desktop notifications" }), notifToggle),
+      h("div", { class: "row" }, h("label", { text: "Sound on notification" }), soundToggle),
+      h("div", { class: "row" }, h("label", { text: "Flash island border" }), flashToggle),
+      h("div", { class: "row" },
+        h("label", { text: "Cooldown" }),
+        cooldown,
+        h("span", { class: "hint", text: "seconds between notifications" }),
+      ),
+      h("div", { class: "row" },
+        h("label", { text: "Quiet hours" }),
+        quietStart,
+        h("span", { class: "hint", text: "to" }),
+        quietEnd,
+        h("span", { class: "hint", text: "(notifications disabled)" }),
+      ),
+
+      h("h3", { text: "Export & Logs" }),
+      h("div", { class: "row" }, h("label", { text: "Enable logging" }), logToggle),
+      h("div", { class: "row" }, h("label", { text: "Enable analytics" }), analyticsToggle),
+      h("div", { class: "row" }, exportMd, exportJson, clearLogs),
+
+      h("h3", { text: "Quick Replies" }),
+      qrList,
+      h("div", { class: "row" }, newLabel, newText, addQr),
+
+      h("h3", { text: "Analytics" }),
+      h("div", { class: "hint", text: `Total log entries: ${Power.getLogs().length}` }),
+    );
+  }
+
+  draw();
+  return section;
+}
+
 // ── General section ───────────────────────────────────────────────────────────
 
 function generalSection(): HTMLElement {
@@ -900,6 +1228,21 @@ function generalSection(): HTMLElement {
     void save();
   });
 
+  const islandSize = h("select", {}) as HTMLSelectElement;
+  islandSize.append(
+    h("option", { value: "compact", text: "Compact (800px min)" }),
+    h("option", { value: "comfortable", text: "Comfortable (960px min — Default)" }),
+    h("option", { value: "large", text: "Large (1120px min)" }),
+  );
+  islandSize.value =
+    settings.islandSize === "compact" || settings.islandSize === "large"
+      ? settings.islandSize
+      : "comfortable";
+  islandSize.addEventListener("change", () => {
+    settings.islandSize = islandSize.value;
+    void save();
+  });
+
   return h(
     "section",
     {},
@@ -913,6 +1256,10 @@ function generalSection(): HTMLElement {
       h("label", { text: t("Auto-close") }),
       autoClose,
       h("span", { class: "hint", text: t("seconds after you leave the island") }),
+    ),
+    h("div", { class: "row" },
+      h("label", { text: "Island size" }),
+      islandSize,
     ),
     h("div", { class: "row" },
       h("label", { text: t("Island lives on") }),
@@ -1292,6 +1639,9 @@ async function render() {
     h("h1", {}, h("span", { text: "Coucou" }), h("span", { class: "version", text: version })),
     claudeSection(status),
     agentsSection(agents),
+    openCodeSection(),
+    workflowSection(),
+    powerSection(),
     planSection(status),
     apiSection(hasKey),
     chatProvidersSection(chatKeys, keyChanged),

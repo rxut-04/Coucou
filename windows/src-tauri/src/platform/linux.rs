@@ -447,6 +447,10 @@ pub fn make_non_activating(win: &WebviewWindow) {
         }
         gtk::glib::Propagation::Proceed
     });
+    gw.connect_configure_event(move |w, _| {
+        apply_input_region(w, *INPUT_REGION.lock().unwrap());
+        false
+    });
     LAYER_SURFACE.store(true, Ordering::Relaxed);
     crate::log::line("island is a layer-shell overlay");
 }
@@ -558,6 +562,18 @@ pub fn set_activating(win: &WebviewWindow, activating: bool) {
         let mode = if activating { layer::KEYBOARD_ON_DEMAND } else { layer::KEYBOARD_NONE };
         unsafe { layer::gtk_layer_set_keyboard_mode(gtk_window_ptr(&gw), mode) };
     }
+}
+
+/// Explicitly sets both size_request and resize on the GTK window so a Wayland
+/// layer-shell surface can both grow and shrink dynamically, then re-applies
+/// the Cairo click-through input region.
+pub fn resize_layer_surface(win: &WebviewWindow, logical_w: i32, logical_h: i32) {
+    let Ok(gw) = win.gtk_window() else { return };
+    let w = logical_w.max(1);
+    let h = logical_h.max(1);
+    gw.set_size_request(w, h);
+    gw.resize(w, h);
+    apply_input_region(&gw, *INPUT_REGION.lock().unwrap());
 }
 
 /// Only this rectangle (window-logical pixels) takes the mouse; `None` means

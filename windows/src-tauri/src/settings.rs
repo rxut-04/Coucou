@@ -58,6 +58,8 @@ pub struct Settings {
     /// ("fr", "pt-BR", "zh-Hans"…). Kept as it comes, like `mochi_outfit`: a
     /// code this build doesn't know reads as "".
     pub language: String,
+    /// Island size preset ("compact", "comfortable", "large"). Defaults to "comfortable".
+    pub island_size: String,
     /// Mochi on the desktop: whether he lives there, and his spot. Owned by
     /// the Rust side (desktop.rs) — what a webview sends back is ignored.
     pub desktop_mochi: DesktopMochiPref,
@@ -113,6 +115,7 @@ impl Default for Settings {
             shortcuts: Default::default(),
             mochi_outfit: "auto".into(),
             language: String::new(),
+            island_size: "comfortable".into(),
             desktop_mochi: DesktopMochiPref::default(),
         }
     }
@@ -387,6 +390,7 @@ mod tests {
   "shortcuts": { "openChat": { "keys": "Ctrl+Shift+K", "enabled": false } },
   "mochiOutfit": "witchHat",
   "language": "pt-BR",
+  "islandSize": "large",
   "desktopMochi": { "onDesktop": true, "spot": { "x": 1500.5, "y": -300.0, "space": "screen" } }
 }"#;
 
@@ -770,6 +774,7 @@ mod tests {
                 "shortcuts",
                 "mochiOutfit",
                 "language",
+                "islandSize",
                 "desktopMochi",
             ]
         );

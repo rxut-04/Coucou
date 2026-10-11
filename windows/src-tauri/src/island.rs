@@ -14,9 +14,9 @@ use tauri::{AppHandle, Emitter, Manager, Monitor, PhysicalPosition, PhysicalSize
 
 use crate::platform::{self, cursor_physical, left_button_down};
 
-/// Logical size of the full window — the largest island view, like the macOS panel.
-pub const PANEL_W: f64 = 720.0;
-pub const PANEL_H: f64 = 320.0;
+/// Logical default size of the full window (Comfortable preset default, grown dynamically).
+pub const PANEL_W: f64 = 960.0;
+pub const PANEL_H: f64 = 380.0;
 /// Logical size of the invisible strip that wakes the island when it is hidden.
 pub const STRIP_W: f64 = 240.0;
 pub const STRIP_H: f64 = 6.0;
@@ -59,6 +59,7 @@ pub struct PollGate {
     cv: Condvar,
     pub collapsed: AtomicBool,
     pub rect: Mutex<IslandRect>,
+    pub panel_size: Mutex<(f64, f64)>,
     /// Mirrors the window flag so we only call into the OS when it changes.
     ignoring: AtomicBool,
 }
@@ -70,12 +71,23 @@ impl PollGate {
             cv: Condvar::new(),
             collapsed: AtomicBool::new(true),
             rect: Mutex::new(IslandRect::default()),
+            panel_size: Mutex::new((PANEL_W, PANEL_H)),
             ignoring: AtomicBool::new(false),
         }
     }
 
     pub fn set_rect(&self, rect: IslandRect) {
         *self.rect.lock().unwrap() = rect;
+    }
+
+    pub fn set_panel_size(&self, w: f64, h: f64) -> bool {
+        let mut guard = self.panel_size.lock().unwrap();
+        let next = (w.max(STRIP_W), h.max(STRIP_H));
+        if (guard.0 - next.0).abs() < 1.0 && (guard.1 - next.1).abs() < 1.0 {
+            return false;
+        }
+        *guard = next;
+        true
     }
 
     /// Forces the next poll tick to re-apply the flag (after a window resize).
@@ -307,7 +319,18 @@ pub fn apply_geometry(app: &AppHandle, pref: &str, collapsed: bool) {
     let mp = *m.position();
     let ms = *m.size();
 
-    let (lw, lh) = if collapsed { (STRIP_W, STRIP_H) } else { (PANEL_W, PANEL_H) };
+    let max_lw = ((ms.width as f64 / scale) * 0.96).max(STRIP_W);
+    let max_lh = ((ms.height as f64 / scale) * 0.90).max(STRIP_H);
+    let (panel_w, panel_h) = app
+        .try_state::<crate::Shared>()
+        .map(|s| *s.gate.panel_size.lock().unwrap())
+        .unwrap_or((PANEL_W, PANEL_H));
+
+    let (lw, lh) = if collapsed {
+        (STRIP_W, STRIP_H)
+    } else {
+        (panel_w.clamp(STRIP_W, max_lw), panel_h.clamp(STRIP_H, max_lh))
+    };
     let pw = (lw * scale).round().max(1.0) as u32;
     let ph = (lh * scale).round().max(1.0) as u32;
     let x = mp.x + (ms.width as i32 - pw as i32) / 2;
@@ -320,12 +343,16 @@ pub fn apply_geometry(app: &AppHandle, pref: &str, collapsed: bool) {
     // still offers the user nothing to resize it by. (Found by @YossiYad, #44.)
     #[cfg(target_os = "linux")]
     let _ = win.set_resizable(true);
+    #[cfg(target_os = "linux")]
+    platform::resize_layer_surface(&win, lw.round().max(1.0) as i32, lh.round().max(1.0) as i32);
     let _ = win.set_size(PhysicalSize::new(pw, ph));
     let _ = win.set_position(PhysicalPosition::new(x, y));
     let (lx, ly) = logical_origin(&m);
     platform::pin_to_monitor(&win, lx, ly);
     // Moving across displays can rescale the window: re-assert the physical size.
     let _ = win.set_size(PhysicalSize::new(pw, ph));
+    #[cfg(target_os = "linux")]
+    platform::resize_layer_surface(&win, lw.round().max(1.0) as i32, lh.round().max(1.0) as i32);
     let _ = win.set_always_on_top(true);
 }
 
