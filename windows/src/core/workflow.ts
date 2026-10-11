@@ -147,7 +147,32 @@ class WorkflowEngine {
     void this.initAgentMonitor();
     void this.initDailyGoalsAndRecap();
     void this.initHealthMode();
+    void this.initStatsDashboard();
     this.startTracking();
+  }
+
+  private async initStatsDashboard() {
+    await this.refreshStatsDashboard();
+  }
+
+  async refreshStatsDashboard() {
+    const stats = await Bridge.statsDashboardGet();
+    if (stats) {
+      State.statsDashboard = stats;
+      State.notify();
+    }
+  }
+
+  toggleStatsCard() {
+    State.showingStatsCard = !State.showingStatsCard;
+    if (State.showingStatsCard) {
+      State.showingMorningRecap = false;
+      State.showingDailyGoalsCard = false;
+      State.showingHealthCard = false;
+      void this.refreshStatsDashboard();
+    }
+    Sound.play("blip");
+    State.notify();
   }
 
   private async initHealthMode() {
@@ -191,6 +216,7 @@ class WorkflowEngine {
     if (State.showingHealthCard) {
       State.showingMorningRecap = false;
       State.showingDailyGoalsCard = false;
+      State.showingStatsCard = false;
       void Bridge.healthModeStatus().then((snap) => {
         if (snap) {
           State.healthStatus = snap;
@@ -270,6 +296,7 @@ class WorkflowEngine {
     const goals = await Bridge.dailyGoalToggle(id);
     if (goals) {
       State.dailyGoals = goals;
+      void this.refreshStatsDashboard();
       const doneCount = goals.filter((g) => g.done).length;
       const toggled = goals.find((g) => g.id === id);
       Sound.play(toggled?.done ? "complete" : "blip");
@@ -300,6 +327,7 @@ class WorkflowEngine {
     if (State.showingDailyGoalsCard) {
       State.showingMorningRecap = false;
       State.showingHealthCard = false;
+      State.showingStatsCard = false;
       void Bridge.dailyGoalsList().then((goals) => {
         if (goals) {
           State.dailyGoals = goals;
@@ -323,6 +351,7 @@ class WorkflowEngine {
       State.morningRecap = recap;
       State.showingDailyGoalsCard = false;
       State.showingHealthCard = false;
+      State.showingStatsCard = false;
       State.showingMorningRecap = true;
       Sound.play("peek");
       State.notify();
@@ -613,6 +642,7 @@ class WorkflowEngine {
     const current = State.currentTaskRecord;
     const done = await Bridge.taskComplete(current?.id);
     Sound.play("complete");
+    void this.refreshStatsDashboard();
     const completedTitle = done?.title || current?.title || "Current task";
     const next = await Bridge.taskCurrent();
     if (next) {
@@ -669,6 +699,7 @@ class WorkflowEngine {
     Sound.play("close");
     State.notify();
     await Bridge.focusSessionFinish(active.id, active.elapsedSecs, "cancelled");
+    void this.refreshStatsDashboard();
   }
 
   private tickFocusSession() {
@@ -688,7 +719,7 @@ class WorkflowEngine {
         finishedSession.id,
         finishedSession.targetSecs,
         "completed",
-      );
+      ).then(() => this.refreshStatsDashboard());
       const mins = Math.max(1, Math.round(finishedSession.targetSecs / 60));
       this.showNotification({
         message: `${mins}-minute focus session complete! Great work, review & stretch 🎯`,

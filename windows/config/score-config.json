@@ -1,0 +1,19 @@
+{
+  "baseScore": 15.0,
+  "pointsPerFocusMinute": 1.2,
+  "maxFocusPoints": 45.0,
+  "pointsPerCompletedTask": 8.0,
+  "maxTaskPoints": 24.0,
+  "pointsPerDailyGoal": 7.0,
+  "maxGoalPoints": 21.0,
+  "pointsPerProductiveBrowserMin": 0.5,
+  "maxProductiveBrowserPoints": 10.0,
+  "pointsPerAgentRun": 1.5,
+  "maxAgentPoints": 10.0,
+  "penaltyPerDistractingBrowserMin": 1.0,
+  "xpPerFocusMinute": 10,
+  "xpPerCompletedTask": 50,
+  "xpPerDailyGoal": 75,
+  "xpPerAgentRun": 15,
+  "xpPerLevel": 500
+}

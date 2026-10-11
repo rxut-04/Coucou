@@ -2025,6 +2025,126 @@ input[type="range"]::-webkit-slider-thumb {
   color: #fff;
 }
 
+/* ── Phase 8: Daily Score, Streaks, XP, Levels & 7-Day Chart ("🏆 84 · L3") ── */
+
+.p8-stats-pill {
+  cursor: pointer;
+  padding: 0 7px;
+  background: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.36);
+  color: #fde68a;
+  font-variant-numeric: tabular-nums;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.p8-stats-pill:hover,
+.p8-stats-pill.active {
+  background: rgba(245, 158, 11, 0.28);
+  border-color: rgba(245, 158, 11, 0.58);
+  color: #fef3c7;
+}
+
+.p8-body-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 3px;
+  min-width: 0;
+}
+
+.p8-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.p8-bar-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.p8-bar-track {
+  width: 7px;
+  height: 26px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+}
+
+.p8-bar-fill {
+  width: 100%;
+  border-radius: 3px;
+  background: linear-gradient(180deg, #60a5fa, #3b82f6);
+  transition: height 0.2s ease;
+}
+
+.p8-bar-col.today .p8-bar-fill {
+  background: linear-gradient(180deg, #fbbf24, #f59e0b);
+}
+
+.p8-bar-lbl {
+  font: 600 8px var(--font);
+  color: var(--dim-3);
+  line-height: 1;
+}
+
+.p8-bar-col.today .p8-bar-lbl {
+  color: #fde68a;
+}
+
+.p8-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.p8-xp-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.p8-xp-bar {
+  flex: 0 0 54px;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+.p8-xp-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #10b981, #34d399);
+}
+
+.p8-xp-txt {
+  font: 500 9.5px var(--font);
+  color: #cbd5e1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.p8-insight {
+  font: 400 9.5px var(--font);
+  color: var(--dim-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* Power features: a notification makes the island's edge glow for a second
    (src/core/power.ts → PowerEngine.flashIsland). */
 #island.flash-border {

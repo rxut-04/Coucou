@@ -360,6 +360,21 @@ export function buildHeader(actions: ViewActions): ViewHost {
     healthModeLabel,
   );
 
+  // ── Phase 8: Daily Score, XP, Level & Streak Pill ("🏆 84 · L3 🔥1d")
+  const statsPillLabel = h("span", { class: "p8-stats-label", text: "🏆 --" });
+  const statsPill = h(
+    "button",
+    {
+      class: "p3-pill p8-stats-pill",
+      title: "Daily Focus Score, Streaks, XP, Levels & 7-Day Chart",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        Workflow.toggleStatsCard();
+      },
+    },
+    statsPillLabel,
+  );
+
   const phase3Bar = h(
     "div",
     { class: "phase3-bar" },
@@ -367,6 +382,7 @@ export function buildHeader(actions: ViewActions): ViewHost {
     dailyGoalsPill,
     morningRecapBtn,
     healthModePill,
+    statsPill,
     focusStartBtn,
     focusActivePill,
     agentWaitPill,
@@ -407,6 +423,16 @@ export function buildHeader(actions: ViewActions): ViewHost {
       healthModePill.title = hs
         ? `Health timers active · Next: 👀 ${Math.ceil(hs.eyeRemainingSecs / 60)}m · 💧 ${Math.ceil(hs.waterRemainingSecs / 60)}m · 🧘 ${Math.ceil(hs.postureRemainingSecs / 60)}m`
         : "Night & Health Mode";
+    }
+
+    const sd = State.statsDashboard;
+    statsPill.classList.toggle("active", State.showingStatsCard);
+    if (sd) {
+      const streakStr = sd.streakDays > 0 ? ` 🔥${sd.streakDays}d` : "";
+      statsPillLabel.textContent = `🏆 ${sd.dailyScore} · L${sd.level}${streakStr}`;
+      statsPill.title = `Daily Score: ${sd.dailyScore}/100 · ${sd.levelTitle} (${sd.totalXp} XP) · Streak: ${sd.streakDays}d\n${sd.formulaDoc}`;
+    } else {
+      statsPillLabel.textContent = "🏆 Stats";
     }
 
     const session = State.focusSession;
@@ -553,7 +579,7 @@ function buildOverview(actions: ViewActions): ViewHost {
   let pillIds = "";
   let detailOpen = false;
   let lastFocus: string | null = null;
-  let mode: "ticker" | "card" | "plan" | "diff" | "workflow" | "recap" | "goals" | "health" | null = null;
+  let mode: "ticker" | "card" | "plan" | "diff" | "workflow" | "recap" | "goals" | "health" | "stats" | null = null;
   let cardKey = "";
 
   // Leaving the overview or folding the island closes the diff, as on macOS.
@@ -653,6 +679,10 @@ function buildOverview(actions: ViewActions): ViewHost {
         mode = null;
         cardKey = "";
       }
+      if (mode === "stats" && !State.showingStatsCard) {
+        mode = null;
+        cardKey = "";
+      }
 
       if (planOpen) {
         if (mode !== "plan") {
@@ -688,6 +718,15 @@ function buildOverview(actions: ViewActions): ViewHost {
           mode = "health";
           clear(leftBody);
           leftBody.append(renderHealthModeCard());
+        }
+      } else if (State.showingStatsCard && State.statsDashboard) {
+        const sd = State.statsDashboard;
+        const key = `stats~${sd.dailyScore}~${sd.totalXp}~${sd.level}~${sd.streakDays}~${sd.dailyChart.map((p) => p.score).join(",")}`;
+        if (key !== cardKey) {
+          cardKey = key;
+          mode = "stats";
+          clear(leftBody);
+          leftBody.append(renderStatsDashboardCard(sd));
         }
       } else if (task && diff) {
         const key = `diff~${task.id}~${diff.id}`;
@@ -767,7 +806,7 @@ function buildOverview(actions: ViewActions): ViewHost {
       }
 
       jump.style.display =
-        detailOpen || mode === "plan" || mode === "diff" || mode === "workflow" || mode === "recap" || mode === "goals" || mode === "health"
+        detailOpen || mode === "plan" || mode === "diff" || mode === "workflow" || mode === "recap" || mode === "goals" || mode === "health" || mode === "stats"
           ? "none"
           : "";
 
@@ -798,6 +837,82 @@ export function hasSessionTicker(task: AgentTask): boolean {
   const isSession = category === "workspace" || category === "agent" ||
     (category == null && task.id.startsWith("agent_"));
   return isSession && (task.state !== "idle" || task.steps.length > 0);
+}
+
+function renderStatsDashboardCard(sd: import("../core/bridge").StatsDashboardData): HTMLElement {
+  const xpPct = sd.nextLevelXp > 0
+    ? Math.min(100, Math.round((sd.currentLevelXp / sd.nextLevelXp) * 100))
+    : 100;
+
+  const chartBars = sd.dailyChart.map((pt, idx) => {
+    const isToday = idx === sd.dailyChart.length - 1;
+    const heightPx = Math.max(4, Math.round((pt.score / 100) * 26));
+    return h(
+      "div",
+      {
+        class: `p8-bar-col ${isToday ? "today" : ""}`,
+        title: `${pt.label} (${pt.day}): Score ${pt.score}/100 · ${pt.focusMins}m focus · ${pt.tasksDone} tasks`,
+      },
+      h(
+        "div",
+        { class: "p8-bar-track" },
+        h("div", { class: "p8-bar-fill", style: `height:${heightPx}px` }),
+      ),
+      h("span", { class: "p8-bar-lbl", text: pt.label }),
+    );
+  });
+
+  return h(
+    "div",
+    {
+      class: "int-card wf-card p8-stats-card",
+      title: sd.formulaDoc,
+    },
+    h(
+      "div",
+      { class: "int-head p6-card-head" },
+      dot("#F59E0B", 7),
+      h("b", { text: `🏆 Score ${sd.dailyScore}/100` }),
+      h("span", {
+        text: `${sd.levelTitle} (${sd.totalXp} XP) · 🔥${sd.streakDays}d streak`,
+      }),
+      h(
+        "button",
+        {
+          class: "p3-btn p6-close-btn",
+          title: "Close stats view",
+          onclick: (e: Event) => {
+            e.stopPropagation();
+            Workflow.toggleStatsCard();
+          },
+        },
+        h("span", { text: "✕" }),
+      ),
+    ),
+    h(
+      "div",
+      { class: "p8-body-row" },
+      h("div", { class: "p8-chart" }, ...chartBars),
+      h(
+        "div",
+        { class: "p8-meta" },
+        h(
+          "div",
+          { class: "p8-xp-row" },
+          h(
+            "div",
+            { class: "p8-xp-bar" },
+            h("div", { class: "p8-xp-fill", style: `width:${xpPct}%` }),
+          ),
+          h("span", {
+            class: "p8-xp-txt",
+            text: `${sd.currentLevelXp}/${sd.nextLevelXp} XP · Focus+${sd.scoreBreakdown.focusPoints} Tasks+${sd.scoreBreakdown.taskPoints} Goals+${sd.scoreBreakdown.goalPoints}`,
+          }),
+        ),
+        h("div", { class: "p8-insight", text: `💡 ${sd.weeklyInsight}` }),
+      ),
+    ),
+  );
 }
 
 function renderHealthModeCard(): HTMLElement {

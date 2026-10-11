@@ -245,6 +245,9 @@ export const Bridge = {
   healthModeActivityPing: () => call<boolean>("health_mode_activity_ping"),
   healthModeAcknowledge: () => call<boolean>("health_mode_acknowledge"),
 
+  // ── Phase 8: Daily Score, XP, Levels, Streaks, Weekly Insight & Chart ─────
+  statsDashboardGet: () => call<StatsDashboardData>("stats_dashboard_get"),
+
   // ── Mochi on the desktop (src-tauri/src/desktop.rs) ───────────────────────
   desktopInfo: () => call<DesktopInfo>("desktop_mochi_info"),
   /** Dragged out of the island: (x, y) is the pointer in island-window coordinates. */
@@ -264,6 +267,40 @@ export const Bridge = {
   /** Asleep, the cursor poll stops. */
   desktopSetAsleep: (asleep: boolean) => call<void>("desktop_mochi_set_asleep", { asleep }),
 };
+
+export interface ScoreBreakdown {
+  basePoints: number;
+  focusPoints: number;
+  taskPoints: number;
+  goalPoints: number;
+  browserPoints: number;
+  agentPoints: number;
+  distractingPenalty: number;
+}
+
+export interface DailyChartPoint {
+  day: string;
+  label: string;
+  score: number;
+  focusMins: number;
+  tasksDone: number;
+}
+
+export interface StatsDashboardData {
+  day: string;
+  dailyScore: number;
+  scoreBreakdown: ScoreBreakdown;
+  formulaDoc: string;
+  weightsConfigPath: string;
+  totalXp: number;
+  level: number;
+  levelTitle: string;
+  currentLevelXp: number;
+  nextLevelXp: number;
+  streakDays: number;
+  weeklyInsight: string;
+  dailyChart: DailyChartPoint[];
+}
 
 export interface HealthConfig {
   enabled: boolean;

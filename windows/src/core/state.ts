@@ -19,6 +19,7 @@ import {
   type DomainCategory,
   type HealthStatusSnapshot,
   type MorningRecapData,
+  type StatsDashboardData,
   type TaskRecord,
   type WeeklyAgentWaitStats,
 } from "./bridge";
@@ -528,6 +529,10 @@ class AppState {
   healthStatus: HealthStatusSnapshot | null = null;
   /** Phase 7: Whether the interactive Night & Health Mode card is open in the main left card. */
   showingHealthCard = false;
+  /** Phase 8: Daily focus score (0-100), XP, level, streak, weekly insight, and 7-day chart. */
+  statsDashboard: StatsDashboardData | null = null;
+  /** Phase 8: Whether the Stats & Chart view card is open in the main left card. */
+  showingStatsCard = false;
   /**
    * Mochi is out of the island — on the desktop, flying, or being dragged
    * there — so the island's own Mochi is hidden (AppState.mochiOnDesktop).

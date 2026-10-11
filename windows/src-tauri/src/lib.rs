@@ -757,6 +757,7 @@ pub fn run() {
             db::daily_goal_toggle,
             db::morning_recap_get,
             db::morning_recap_dismiss,
+            db::stats_dashboard_get,
             browser_intent::browser_intent_status,
             browser_intent::browser_intent_record_session,
             agent_monitor::agent_monitor_status,
