@@ -317,10 +317,40 @@ export function buildHeader(actions: ViewActions): ViewHost {
     agentWaitLabel,
   );
 
+  // ── Phase 6: Daily Goals Progress Pill ("🎯 1/3") & Morning Recap Button
+  const dailyGoalsLabel = h("span", { class: "p6-goals-label", text: "🎯 0/3" });
+  const dailyGoalsPill = h(
+    "button",
+    {
+      class: "p3-pill p6-goals-pill",
+      title: "Click to view & toggle today's 3 daily goals",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        Workflow.toggleDailyGoalsCard();
+      },
+    },
+    dailyGoalsLabel,
+  );
+
+  const morningRecapBtn = h(
+    "button",
+    {
+      class: "p3-pill p6-recap-btn",
+      title: "Show 'Where did I leave off' recap",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        void Workflow.triggerMorningRecapDemo();
+      },
+    },
+    h("span", { text: "🌅" }),
+  );
+
   const phase3Bar = h(
     "div",
     { class: "phase3-bar" },
     taskPillEl,
+    dailyGoalsPill,
+    morningRecapBtn,
     focusStartBtn,
     focusActivePill,
     agentWaitPill,
@@ -334,6 +364,17 @@ export function buildHeader(actions: ViewActions): ViewHost {
     taskLabelEl.textContent = taskTitle;
     taskLabelEl.style.display = editingTask ? "none" : "";
     taskInputEl.style.display = editingTask ? "" : "none";
+
+    const goals = State.dailyGoals;
+    const goalsTotal = goals.length > 0 ? goals.length : 3;
+    const goalsDone = goals.filter((g) => g.done).length;
+    dailyGoalsLabel.textContent = `🎯 ${goalsDone}/${goalsTotal}`;
+    dailyGoalsPill.classList.toggle("active", State.showingDailyGoalsCard);
+    dailyGoalsPill.classList.toggle("all-done", goalsDone === goalsTotal && goalsTotal > 0);
+    dailyGoalsPill.title = goals.length > 0
+      ? `Today's goals (${goalsDone}/${goalsTotal}):\n` + goals.map((g) => `${g.done ? "✅" : "⬜"} ${g.slot}. ${g.title}`).join("\n")
+      : "Click to view & toggle today's 3 daily goals";
+    morningRecapBtn.classList.toggle("active", State.showingMorningRecap);
 
     const session = State.focusSession;
     if (!session) {
@@ -479,7 +520,7 @@ function buildOverview(actions: ViewActions): ViewHost {
   let pillIds = "";
   let detailOpen = false;
   let lastFocus: string | null = null;
-  let mode: "ticker" | "card" | "plan" | "diff" | "workflow" | null = null;
+  let mode: "ticker" | "card" | "plan" | "diff" | "workflow" | "recap" | "goals" | null = null;
   let cardKey = "";
 
   // Leaving the overview or folding the island closes the diff, as on macOS.
@@ -567,6 +608,14 @@ function buildOverview(actions: ViewActions): ViewHost {
         mode = null;
         cardKey = "";
       }
+      if (mode === "recap" && !State.showingMorningRecap) {
+        mode = null;
+        cardKey = "";
+      }
+      if (mode === "goals" && !State.showingDailyGoalsCard) {
+        mode = null;
+        cardKey = "";
+      }
 
       if (planOpen) {
         if (mode !== "plan") {
@@ -575,6 +624,25 @@ function buildOverview(actions: ViewActions): ViewHost {
           mode = "plan";
         }
         plan.sync();
+      } else if (State.showingMorningRecap && State.morningRecap) {
+        const r = State.morningRecap;
+        const goalsKey = State.dailyGoals.map((g) => `${g.id}:${g.done}:${g.title}`).join("|");
+        const key = `recap~${r.lastProject}~${r.lastFile}~${r.gitBranch}~${r.unfinishedTask}~${goalsKey}`;
+        if (key !== cardKey) {
+          cardKey = key;
+          mode = "recap";
+          clear(leftBody);
+          leftBody.append(renderMorningRecapCard(r));
+        }
+      } else if (State.showingDailyGoalsCard) {
+        const goalsKey = State.dailyGoals.map((g) => `${g.id}:${g.done}:${g.title}`).join("|");
+        const key = `goals~${goalsKey}`;
+        if (key !== cardKey) {
+          cardKey = key;
+          mode = "goals";
+          clear(leftBody);
+          leftBody.append(renderDailyGoalsCard());
+        }
       } else if (task && diff) {
         const key = `diff~${task.id}~${diff.id}`;
         if (key !== cardKey) {
@@ -652,7 +720,10 @@ function buildOverview(actions: ViewActions): ViewHost {
         }
       }
 
-      jump.style.display = detailOpen || mode === "plan" || mode === "diff" || mode === "workflow" ? "none" : "";
+      jump.style.display =
+        detailOpen || mode === "plan" || mode === "diff" || mode === "workflow" || mode === "recap" || mode === "goals"
+          ? "none"
+          : "";
 
       const visible = State.otherTasks.slice(0, 4);
       const pillKey = visible.map((t) => `${t.id}:${t.color}:${t.pillBadge ?? ""}:${t.state}`).join("|");
@@ -681,6 +752,97 @@ export function hasSessionTicker(task: AgentTask): boolean {
   const isSession = category === "workspace" || category === "agent" ||
     (category == null && task.id.startsWith("agent_"));
   return isSession && (task.state !== "idle" || task.steps.length > 0);
+}
+
+function renderMorningRecapCard(recap: import("../core/bridge").MorningRecapData): HTMLElement {
+  const projectName = recap.lastProject.split("/").filter(Boolean).pop() || recap.lastProject;
+  return h(
+    "div",
+    { class: "int-card wf-card p6-recap-card" },
+    h(
+      "div",
+      { class: "int-head p6-card-head" },
+      dot("#F59E0B", 7),
+      h("b", { text: "🌅 Where did I leave off" }),
+      h("span", { text: `${recap.gitBranch} · ${projectName}` }),
+      h(
+        "button",
+        {
+          class: "p3-btn p6-close-btn",
+          title: "Dismiss morning recap",
+          onclick: (e: Event) => {
+            e.stopPropagation();
+            void Workflow.dismissMorningRecap();
+          },
+        },
+        h("span", { text: "✓ Got it" }),
+      ),
+    ),
+    h(
+      "div",
+      { class: "p6-recap-line" },
+      h("span", { class: "p6-chip", text: `📄 ${recap.lastFile}` }),
+      h("span", { class: "p6-chip", text: `🌿 ${recap.gitBranch}` }),
+      h("span", { class: "p6-chip p6-chip-task", text: `📌 ${recap.unfinishedTask}` }),
+    ),
+    h(
+      "div",
+      { class: "p6-stats-line" },
+      h(
+        "span",
+        {
+          text: `Recent: ${recap.focusMinutesRecent}m focus (${recap.focusSessionsRecent} sessions) · ${recap.tasksCompletedRecent} tasks done · ${recap.agentRunsRecent} agent runs · 🎯 ${recap.goalsDone}/${recap.goalsTotal} goals`,
+        },
+      ),
+    ),
+  );
+}
+
+function renderDailyGoalsCard(): HTMLElement {
+  const goals = State.dailyGoals;
+  const doneCount = goals.filter((g) => g.done).length;
+  return h(
+    "div",
+    { class: "int-card wf-card p6-goals-card" },
+    h(
+      "div",
+      { class: "int-head p6-card-head" },
+      dot("#10B981", 7),
+      h("b", { text: `🎯 Daily Goals (${doneCount}/${goals.length || 3})` }),
+      h("span", { text: "Click goal to complete" }),
+      h(
+        "button",
+        {
+          class: "p3-btn p6-close-btn",
+          title: "Close daily goals",
+          onclick: (e: Event) => {
+            e.stopPropagation();
+            Workflow.toggleDailyGoalsCard();
+          },
+        },
+        h("span", { text: "✕" }),
+      ),
+    ),
+    h(
+      "div",
+      { class: "p6-goals-list" },
+      ...goals.map((g) =>
+        h(
+          "button",
+          {
+            class: `p6-goal-item ${g.done ? "done" : ""}`,
+            title: "Click to toggle goal completion",
+            onclick: (e: Event) => {
+              e.stopPropagation();
+              void Workflow.toggleDailyGoal(g.id);
+            },
+          },
+          h("span", { class: "p6-goal-check", text: g.done ? "✅" : "⬜" }),
+          h("span", { class: "p6-goal-text", text: `${g.slot}. ${g.title}` }),
+        ),
+      ),
+    ),
+  );
 }
 
 function renderWorkflowQuoteCard(task: AgentTask | null, message: string, detail?: string): HTMLElement {

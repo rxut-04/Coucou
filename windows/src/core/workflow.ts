@@ -138,7 +138,93 @@ class WorkflowEngine {
     void this.syncCurrentTask();
     void this.initBrowserIntent();
     void this.initAgentMonitor();
+    void this.initDailyGoalsAndRecap();
     this.startTracking();
+  }
+
+  private async initDailyGoalsAndRecap() {
+    const goals = await Bridge.dailyGoalsList();
+    if (goals) {
+      State.dailyGoals = goals;
+      State.notify();
+    }
+    const recap = await Bridge.morningRecapGet(false);
+    if (recap) {
+      State.morningRecap = recap;
+      if (recap.shouldShowToday) {
+        State.showingMorningRecap = true;
+        Sound.play("peek");
+      }
+      State.notify();
+    }
+  }
+
+  async toggleDailyGoal(id: number) {
+    const goals = await Bridge.dailyGoalToggle(id);
+    if (goals) {
+      State.dailyGoals = goals;
+      const doneCount = goals.filter((g) => g.done).length;
+      const toggled = goals.find((g) => g.id === id);
+      Sound.play(toggled?.done ? "complete" : "blip");
+      if (toggled?.done) {
+        this.showNotification({
+          message: `Daily goal completed: "${toggled.title}" (${doneCount}/${goals.length}) 🎯`,
+          detail: doneCount === goals.length ? "All daily goals complete! Outstanding work 🚀" : `Progress: ${doneCount}/${goals.length} daily goals`,
+        });
+      } else {
+        State.notify();
+      }
+    }
+  }
+
+  async setDailyGoal(slot: number, title: string) {
+    const clean = title.trim();
+    if (!clean) return;
+    const goals = await Bridge.dailyGoalSet(slot, clean);
+    if (goals) {
+      State.dailyGoals = goals;
+      Sound.play("blip");
+      State.notify();
+    }
+  }
+
+  toggleDailyGoalsCard() {
+    State.showingDailyGoalsCard = !State.showingDailyGoalsCard;
+    if (State.showingDailyGoalsCard) {
+      State.showingMorningRecap = false;
+      void Bridge.dailyGoalsList().then((goals) => {
+        if (goals) {
+          State.dailyGoals = goals;
+          State.notify();
+        }
+      });
+    }
+    Sound.play("blip");
+    State.notify();
+  }
+
+  async triggerMorningRecapDemo() {
+    const [recap, goals] = await Promise.all([
+      Bridge.morningRecapGet(true),
+      Bridge.dailyGoalsList(),
+    ]);
+    if (goals) {
+      State.dailyGoals = goals;
+    }
+    if (recap) {
+      State.morningRecap = recap;
+      State.showingDailyGoalsCard = false;
+      State.showingMorningRecap = true;
+      Sound.play("peek");
+      State.notify();
+    }
+  }
+
+  async dismissMorningRecap() {
+    State.showingMorningRecap = false;
+    Sound.play("blip");
+    State.notify();
+    await Bridge.morningRecapDismiss();
   }
 
   private async initAgentMonitor() {

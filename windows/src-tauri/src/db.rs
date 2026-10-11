@@ -127,6 +127,35 @@ pub struct WeeklyAgentWaitStats {
     pub opencode_secs: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DailyGoalRecord {
+    pub id: i64,
+    pub day: String,
+    pub slot: i64,
+    pub title: String,
+    pub done: bool,
+    pub created_at: i64,
+    pub completed_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct MorningRecapData {
+    pub day: String,
+    pub should_show_today: bool,
+    pub last_project: String,
+    pub last_file: String,
+    pub git_branch: String,
+    pub unfinished_task: String,
+    pub focus_minutes_recent: i64,
+    pub tasks_completed_recent: i64,
+    pub focus_sessions_recent: i64,
+    pub agent_runs_recent: i64,
+    pub goals_done: i64,
+    pub goals_total: i64,
+}
+
 pub struct DbState {
     path: PathBuf,
     lock: Mutex<()>,
@@ -137,6 +166,24 @@ fn unix_now() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0)
+}
+
+fn today_date_string() -> String {
+    // Convert unix timestamp to YYYY-MM-DD (UTC/local day bucket)
+    let secs = unix_now() + 19_800; // IST (+05:30)
+    let days = secs.div_euclid(86_400);
+    // Civil date from days since 1970-01-01 (Howard Hinnant algorithm)
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = (z - era * 146_097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = if m <= 2 { y + 1 } else { y };
+    format!("{year:04}-{m:02}-{d:02}")
 }
 
 pub fn default_db_path() -> PathBuf {
@@ -369,6 +416,23 @@ impl DbState {
                  status TEXT NOT NULL DEFAULT 'done',
                  detail TEXT NOT NULL DEFAULT ''
              );
+             CREATE TABLE IF NOT EXISTS daily_goals (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 day TEXT NOT NULL,
+                 slot INTEGER NOT NULL,
+                 title TEXT NOT NULL,
+                 done INTEGER NOT NULL DEFAULT 0,
+                 created_at INTEGER NOT NULL,
+                 completed_at INTEGER
+             );
+             CREATE TABLE IF NOT EXISTS workspace_context (
+                 id INTEGER PRIMARY KEY CHECK (id = 1),
+                 last_project TEXT NOT NULL DEFAULT 'Coucou',
+                 last_file TEXT NOT NULL DEFAULT 'windows/src-tauri/src/lib.rs',
+                 git_branch TEXT NOT NULL DEFAULT 'main',
+                 updated_at INTEGER NOT NULL DEFAULT 0,
+                 last_recap_day TEXT NOT NULL DEFAULT ''
+             );
              CREATE TABLE IF NOT EXISTS event_log (
                  id INTEGER PRIMARY KEY AUTOINCREMENT,
                  ts INTEGER NOT NULL,
@@ -392,6 +456,58 @@ impl DbState {
             ins.bind_text(2, "Coucou")?;
             ins.bind_i64(3, now)?;
             let _ = ins.step()?;
+        }
+
+        // Ensure workspace_context singleton row exists
+        let ctx_stmt = Statement::prepare(&conn, "SELECT COUNT(*) FROM workspace_context WHERE id = 1;")?;
+        let ctx_count = if ctx_stmt.step()? { ctx_stmt.col_i64(0) } else { 0 };
+        drop(ctx_stmt);
+        if ctx_count == 0 {
+            let now = unix_now();
+            let ins_ctx = Statement::prepare(
+                &conn,
+                "INSERT INTO workspace_context (id, last_project, last_file, git_branch, updated_at, last_recap_day)
+                 VALUES (1, 'Coucou', 'windows/src-tauri/src/lib.rs', 'main', ?1, '');",
+            )?;
+            ins_ctx.bind_i64(1, now)?;
+            let _ = ins_ctx.step()?;
+        }
+
+        // Seed 3 daily goals for today if none exist yet
+        let today = today_date_string();
+        let goal_count_stmt = Statement::prepare(
+            &conn,
+            "SELECT COUNT(*) FROM daily_goals WHERE day = ?1;",
+        )?;
+        goal_count_stmt.bind_text(1, &today)?;
+        let goal_count = if goal_count_stmt.step()? {
+            goal_count_stmt.col_i64(0)
+        } else {
+            0
+        };
+        drop(goal_count_stmt);
+
+        if goal_count == 0 {
+            let now = unix_now();
+            let defaults = [
+                (1_i64, "Ship core feature milestone", 1_i64),
+                (2_i64, "Verify Wayland & SQLite tests", 0_i64),
+                (3_i64, "Clean git commit & review", 0_i64),
+            ];
+            for (slot, title, done) in defaults {
+                let ins = Statement::prepare(
+                    &conn,
+                    "INSERT INTO daily_goals (day, slot, title, done, created_at, completed_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6);",
+                )?;
+                ins.bind_text(1, &today)?;
+                ins.bind_i64(2, slot)?;
+                ins.bind_text(3, title)?;
+                ins.bind_i64(4, done)?;
+                ins.bind_i64(5, now)?;
+                ins.bind_i64(6, if done == 1 { now } else { 0 })?;
+                let _ = ins.step()?;
+            }
         }
         Ok(())
     }
@@ -909,6 +1025,285 @@ impl DbState {
         }
         stats
     }
+
+    pub fn daily_goals_list(&self) -> Vec<DailyGoalRecord> {
+        let today = today_date_string();
+        let Ok(_guard) = self.lock.lock() else {
+            return Vec::new();
+        };
+        let Ok(conn) = Connection::open(&self.path) else {
+            return Vec::new();
+        };
+        let Ok(stmt) = Statement::prepare(
+            &conn,
+            "SELECT id, day, slot, title, done, created_at, COALESCE(completed_at, 0)
+             FROM daily_goals
+             WHERE day = ?1
+             ORDER BY slot ASC, id ASC
+             LIMIT 3;",
+        ) else {
+            return Vec::new();
+        };
+        let _ = stmt.bind_text(1, &today);
+        let mut out = Vec::new();
+        while stmt.step().unwrap_or(false) {
+            out.push(DailyGoalRecord {
+                id: stmt.col_i64(0),
+                day: stmt.col_text(1),
+                slot: stmt.col_i64(2),
+                title: stmt.col_text(3),
+                done: stmt.col_i64(4) != 0,
+                created_at: stmt.col_i64(5),
+                completed_at: stmt.col_opt_i64(6),
+            });
+        }
+        out
+    }
+
+    pub fn daily_goal_set(&self, slot: i64, title: &str) -> Vec<DailyGoalRecord> {
+        let clean_slot = slot.clamp(1, 3);
+        let clean_title = title.trim();
+        if clean_title.is_empty() {
+            return self.daily_goals_list();
+        }
+        let today = today_date_string();
+        let now = unix_now();
+        if let Ok(_guard) = self.lock.lock() {
+            if let Ok(conn) = Connection::open(&self.path) {
+                let existing_id = Statement::prepare(
+                    &conn,
+                    "SELECT id FROM daily_goals WHERE day = ?1 AND slot = ?2 LIMIT 1;",
+                )
+                .ok()
+                .and_then(|s| {
+                    let _ = s.bind_text(1, &today);
+                    let _ = s.bind_i64(2, clean_slot);
+                    if s.step().unwrap_or(false) {
+                        Some(s.col_i64(0))
+                    } else {
+                        None
+                    }
+                });
+
+                if let Some(eid) = existing_id {
+                    if let Ok(upd) = Statement::prepare(
+                        &conn,
+                        "UPDATE daily_goals SET title = ?1 WHERE id = ?2;",
+                    ) {
+                        let _ = upd.bind_text(1, clean_title);
+                        let _ = upd.bind_i64(2, eid);
+                        let _ = upd.step();
+                    }
+                } else if let Ok(ins) = Statement::prepare(
+                    &conn,
+                    "INSERT INTO daily_goals (day, slot, title, done, created_at)
+                     VALUES (?1, ?2, ?3, 0, ?4);",
+                ) {
+                    let _ = ins.bind_text(1, &today);
+                    let _ = ins.bind_i64(2, clean_slot);
+                    let _ = ins.bind_text(3, clean_title);
+                    let _ = ins.bind_i64(4, now);
+                    let _ = ins.step();
+                }
+            }
+        }
+        self.log_event(
+            "daily_goal_set",
+            &serde_json::json!({ "slot": clean_slot, "title": clean_title }).to_string(),
+        );
+        self.daily_goals_list()
+    }
+
+    pub fn daily_goal_toggle(&self, id: i64) -> Vec<DailyGoalRecord> {
+        let now = unix_now();
+        if let Ok(_guard) = self.lock.lock() {
+            if let Ok(conn) = Connection::open(&self.path) {
+                let current_done = Statement::prepare(
+                    &conn,
+                    "SELECT done FROM daily_goals WHERE id = ?1 LIMIT 1;",
+                )
+                .ok()
+                .and_then(|s| {
+                    let _ = s.bind_i64(1, id);
+                    if s.step().unwrap_or(false) {
+                        Some(s.col_i64(0))
+                    } else {
+                        None
+                    }
+                });
+
+                if let Some(done_val) = current_done {
+                    let next_done = if done_val != 0 { 0 } else { 1 };
+                    let completed_at = if next_done == 1 { now } else { 0 };
+                    if let Ok(upd) = Statement::prepare(
+                        &conn,
+                        "UPDATE daily_goals SET done = ?1, completed_at = ?2 WHERE id = ?3;",
+                    ) {
+                        let _ = upd.bind_i64(1, next_done);
+                        let _ = upd.bind_i64(2, completed_at);
+                        let _ = upd.bind_i64(3, id);
+                        let _ = upd.step();
+                    }
+                }
+            }
+        }
+        self.log_event(
+            "daily_goal_toggled",
+            &serde_json::json!({ "id": id }).to_string(),
+        );
+        self.daily_goals_list()
+    }
+
+    pub fn mark_morning_recap_shown(&self) -> bool {
+        let today = today_date_string();
+        let now = unix_now();
+        let Ok(_guard) = self.lock.lock() else {
+            return false;
+        };
+        let Ok(conn) = Connection::open(&self.path) else {
+            return false;
+        };
+        let Ok(upd) = Statement::prepare(
+            &conn,
+            "UPDATE workspace_context SET last_recap_day = ?1, updated_at = ?2 WHERE id = 1;",
+        ) else {
+            return false;
+        };
+        let _ = upd.bind_text(1, &today);
+        let _ = upd.bind_i64(2, now);
+        upd.step().is_ok()
+    }
+
+    pub fn morning_recap(&self, force_demo: bool) -> MorningRecapData {
+        let today = today_date_string();
+        let since_24h = unix_now() - 86_400;
+
+        // Discover live git branch & most recently modified file in workspace if available
+        let mut live_branch = String::new();
+        let mut live_file = String::new();
+        if let Ok(out) = std::process::Command::new("git")
+            .args(["rev-parse", "--abbrev-ref", "HEAD"])
+            .output()
+        {
+            if out.status.success() {
+                live_branch = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            }
+        }
+        if let Ok(out) = std::process::Command::new("git")
+            .args(["diff", "--name-only", "HEAD~1", "HEAD"])
+            .output()
+        {
+            if out.status.success() {
+                if let Some(first_line) = String::from_utf8_lossy(&out.stdout)
+                    .lines()
+                    .find(|l| !l.trim().is_empty())
+                {
+                    live_file = first_line.trim().to_string();
+                }
+            }
+        }
+
+        let goals = self.daily_goals_list();
+        let goals_total = goals.len() as i64;
+        let goals_done = goals.iter().filter(|g| g.done).count() as i64;
+        let unfinished_task = self
+            .current_task()
+            .map(|t| t.title)
+            .unwrap_or_else(|| "Deep work session".to_string());
+
+        let mut last_project = "Coucou".to_string();
+        let mut last_file = "windows/src-tauri/src/lib.rs".to_string();
+        let mut git_branch = "main".to_string();
+        let mut last_recap_day = String::new();
+        let mut focus_secs: i64 = 0;
+        let mut focus_sessions: i64 = 0;
+        let mut tasks_done: i64 = 0;
+        let mut agent_runs: i64 = 0;
+
+        if let Ok(_guard) = self.lock.lock() {
+            if let Ok(conn) = Connection::open(&self.path) {
+                if let Ok(ctx) = Statement::prepare(
+                    &conn,
+                    "SELECT last_project, last_file, git_branch, last_recap_day
+                     FROM workspace_context WHERE id = 1 LIMIT 1;",
+                ) {
+                    if ctx.step().unwrap_or(false) {
+                        last_project = ctx.col_text(0);
+                        last_file = ctx.col_text(1);
+                        git_branch = ctx.col_text(2);
+                        last_recap_day = ctx.col_text(3);
+                    }
+                }
+
+                if !live_branch.is_empty() || !live_file.is_empty() {
+                    if !live_branch.is_empty() {
+                        git_branch = live_branch;
+                    }
+                    if !live_file.is_empty() {
+                        last_file = live_file;
+                    }
+                    if let Ok(upd) = Statement::prepare(
+                        &conn,
+                        "UPDATE workspace_context SET last_file = ?1, git_branch = ?2, updated_at = ?3 WHERE id = 1;",
+                    ) {
+                        let _ = upd.bind_text(1, &last_file);
+                        let _ = upd.bind_text(2, &git_branch);
+                        let _ = upd.bind_i64(3, unix_now());
+                        let _ = upd.step();
+                    }
+                }
+
+                if let Ok(fs_stmt) = Statement::prepare(
+                    &conn,
+                    "SELECT COUNT(*), COALESCE(SUM(duration_secs), 0)
+                     FROM focus_sessions WHERE started_at >= ?1;",
+                ) {
+                    let _ = fs_stmt.bind_i64(1, since_24h);
+                    if fs_stmt.step().unwrap_or(false) {
+                        focus_sessions = fs_stmt.col_i64(0);
+                        focus_secs = fs_stmt.col_i64(1);
+                    }
+                }
+
+                if let Ok(tk_stmt) = Statement::prepare(
+                    &conn,
+                    "SELECT COUNT(*) FROM tasks WHERE status = 'done' AND COALESCE(completed_at, created_at) >= ?1;",
+                ) {
+                    let _ = tk_stmt.bind_i64(1, since_24h);
+                    if tk_stmt.step().unwrap_or(false) {
+                        tasks_done = tk_stmt.col_i64(0);
+                    }
+                }
+
+                if let Ok(ag_stmt) = Statement::prepare(
+                    &conn,
+                    "SELECT COUNT(*) FROM agent_wait_sessions WHERE ended_at >= ?1;",
+                ) {
+                    let _ = ag_stmt.bind_i64(1, since_24h);
+                    if ag_stmt.step().unwrap_or(false) {
+                        agent_runs = ag_stmt.col_i64(0);
+                    }
+                }
+            }
+        }
+
+        let should_show_today = force_demo || last_recap_day != today;
+
+        MorningRecapData {
+            day: today,
+            should_show_today,
+            last_project,
+            last_file,
+            git_branch,
+            unfinished_task,
+            focus_minutes_recent: (focus_secs / 60).max(if focus_secs > 0 { 1 } else { 0 }),
+            tasks_completed_recent: tasks_done,
+            focus_sessions_recent: focus_sessions,
+            agent_runs_recent: agent_runs,
+            goals_done,
+            goals_total,
+        }
+    }
 }
 
 #[tauri::command]
@@ -960,6 +1355,31 @@ pub fn focus_session_list(db: State<'_, DbState>, limit: Option<i64>) -> Vec<Foc
     db.list_focus_sessions(limit.unwrap_or(20))
 }
 
+#[tauri::command]
+pub fn daily_goals_list(db: State<'_, DbState>) -> Vec<DailyGoalRecord> {
+    db.daily_goals_list()
+}
+
+#[tauri::command]
+pub fn daily_goal_set(db: State<'_, DbState>, slot: i64, title: String) -> Vec<DailyGoalRecord> {
+    db.daily_goal_set(slot, &title)
+}
+
+#[tauri::command]
+pub fn daily_goal_toggle(db: State<'_, DbState>, id: i64) -> Vec<DailyGoalRecord> {
+    db.daily_goal_toggle(id)
+}
+
+#[tauri::command]
+pub fn morning_recap_get(db: State<'_, DbState>, force: Option<bool>) -> MorningRecapData {
+    db.morning_recap(force.unwrap_or(false))
+}
+
+#[tauri::command]
+pub fn morning_recap_dismiss(db: State<'_, DbState>) -> bool {
+    db.mark_morning_recap_shown()
+}
+
 pub fn handle_cli_args() -> bool {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let Some(first) = args.first().map(|s| s.as_str()) else {
@@ -967,7 +1387,13 @@ pub fn handle_cli_args() -> bool {
     };
     if !matches!(
         first,
-        "--db-inspect" | "--db-task-set" | "--db-task-done" | "--db-focus-demo"
+        "--db-inspect"
+            | "--db-task-set"
+            | "--db-task-done"
+            | "--db-focus-demo"
+            | "--db-morning-recap"
+            | "--db-goal-set"
+            | "--db-goal-toggle"
     ) {
         return false;
     }
@@ -1002,10 +1428,36 @@ pub fn handle_cli_args() -> bool {
                 );
             }
         }
+        "--db-morning-recap" => {
+            let recap = db.morning_recap(true);
+            println!("{}", serde_json::to_string_pretty(&recap).unwrap_or_default());
+        }
+        "--db-goal-set" => {
+            let slot = args
+                .get(1)
+                .and_then(|s| s.parse::<i64>().ok())
+                .unwrap_or(1);
+            let title = args
+                .get(2)
+                .map(|s| s.as_str())
+                .unwrap_or("Ship Phase 6 daily goals");
+            let updated = db.daily_goal_set(slot, title);
+            println!("{}", serde_json::to_string_pretty(&updated).unwrap_or_default());
+        }
+        "--db-goal-toggle" => {
+            let id = args
+                .get(1)
+                .and_then(|s| s.parse::<i64>().ok())
+                .unwrap_or(1);
+            let updated = db.daily_goal_toggle(id);
+            println!("{}", serde_json::to_string_pretty(&updated).unwrap_or_default());
+        }
         "--db-inspect" | _ => {
             let out = serde_json::json!({
                 "dbPath": path.to_string_lossy(),
                 "currentTask": db.current_task(),
+                "dailyGoals": db.daily_goals_list(),
+                "morningRecap": db.morning_recap(false),
                 "tasks": db.list_tasks(10),
                 "focusSessions": db.list_focus_sessions(10),
                 "browserSessions": db.list_browser_sessions(10),
@@ -1074,6 +1526,34 @@ mod tests {
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].id, started.id);
         assert_eq!(list[0].status, "completed");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn supports_daily_goals_and_morning_recap_in_sqlite() {
+        let (db, dir) = temp_db("phase6");
+        let goals = db.daily_goals_list();
+        assert_eq!(goals.len(), 3);
+        assert_eq!(goals.iter().filter(|g| g.done).count(), 1);
+
+        let updated = db.daily_goal_set(2, "Finish Phase 6 morning recap");
+        assert_eq!(updated[1].title, "Finish Phase 6 morning recap");
+
+        let toggled = db.daily_goal_toggle(updated[1].id);
+        assert!(toggled[1].done);
+        assert_eq!(toggled.iter().filter(|g| g.done).count(), 2);
+
+        let recap = db.morning_recap(false);
+        assert!(recap.should_show_today);
+        assert_eq!(recap.goals_done, 2);
+        assert_eq!(recap.goals_total, 3);
+
+        assert!(db.mark_morning_recap_shown());
+        let recap_after = db.morning_recap(false);
+        assert!(!recap_after.should_show_today);
+        let recap_forced = db.morning_recap(true);
+        assert!(recap_forced.should_show_today);
 
         let _ = std::fs::remove_dir_all(&dir);
     }

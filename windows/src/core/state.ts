@@ -15,7 +15,9 @@ import { getQuoteForWindow } from "./quotes";
 import {
   Bridge,
   type AgentLiveStatus,
+  type DailyGoalRecord,
   type DomainCategory,
+  type MorningRecapData,
   type TaskRecord,
   type WeeklyAgentWaitStats,
 } from "./bridge";
@@ -513,6 +515,14 @@ class AppState {
     kiroSecs: 0,
     opencodeSecs: 0,
   };
+  /** Phase 6: Up to 3 daily goals stored in SQLite (`1/3`). */
+  dailyGoals: DailyGoalRecord[] = [];
+  /** Phase 6: Morning "Where did I leave off" recap payload. */
+  morningRecap: MorningRecapData | null = null;
+  /** Phase 6: Whether the Morning Recap card is open in the main left card. */
+  showingMorningRecap = false;
+  /** Phase 6: Whether the interactive Daily Goals card is open in the main left card. */
+  showingDailyGoalsCard = false;
   /**
    * Mochi is out of the island — on the desktop, flying, or being dragged
    * there — so the island's own Mochi is hidden (AppState.mochiOnDesktop).
