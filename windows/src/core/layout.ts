@@ -157,8 +157,15 @@ export function botPosition(
   switch (mode) {
     case "hidden":
       return { cx: 46, cy: 16, diameter: 6, opacity: 0 };
-    case "compact":
-      return { cx: 42, cy: cfg.compactNotchHeight / 2, diameter: 22, opacity: 1 };
+    case "compact": {
+      const compactDiameter = Math.round(20 * (cfg.compactNotchHeight / 44));
+      return {
+        cx: 42,
+        cy: Math.round(cfg.compactNotchHeight * 0.62),
+        diameter: compactDiameter,
+        opacity: 1,
+      };
+    }
     case "expanded": {
       const layout = VIEW_LAYOUTS[view];
       const extraHeader = Math.max(0, headerH - 34);

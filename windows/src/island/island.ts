@@ -72,9 +72,9 @@ export class Island {
   private width = new Tracked(NOTCH_W);
   private height = new Tracked(0);
   private radius = new Tracked(ROUNDED_CORNER);
-  private botCx = new Spring(46);
-  private botCy = new Spring(16);
-  private botSize = new Spring(10);
+  private botCx = new Spring(46, 0.22, 1.0);
+  private botCy = new Spring(27, 0.22, 1.0);
+  private botSize = new Spring(10, 0.22, 1.0);
 
   private engine = new BotEngine();
   private greeting = new Greeting();
@@ -1320,32 +1320,32 @@ export class Island {
 
   private drawBot(dt: number) {
     const size = this.botSize.value;
-    const w = Math.max(1, Math.round(size));
+    const w = Math.max(1, size);
     const hCss = w + BOT_OVERHANG;
     const wCss = w + BOT_SIDE * 2;
+    const canvasW = 180;
+    const canvasH = 180;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    if (this.canvasPx !== w) {
-      this.canvasPx = w;
-      this.botCanvas.width = Math.round(wCss * dpr);
-      this.botCanvas.height = Math.round(hCss * dpr);
-      this.botCanvas.style.width = `${wCss}px`;
-      this.botCanvas.style.height = `${hCss}px`;
+    if (this.canvasPx !== dpr) {
+      this.canvasPx = dpr;
+      this.botCanvas.width = Math.round(canvasW * dpr);
+      this.botCanvas.height = Math.round(canvasH * dpr);
+      this.botCanvas.style.width = `${canvasW}px`;
+      this.botCanvas.style.height = `${canvasH}px`;
     }
-    this.botCanvas.style.left = `${this.botCx.value - wCss / 2}px`;
-    this.botCanvas.style.top = `${this.botCy.value - BOT_OVERHANG / 2 - hCss / 2}px`;
+    const leftOffset = (canvasW - wCss) / 2;
+    const topOffset = (canvasH - hCss) / 2;
+    this.botCanvas.style.left = `${this.botCx.value - wCss / 2 - leftOffset}px`;
+    this.botCanvas.style.top = `${this.botCy.value - BOT_OVERHANG / 2 - hCss / 2 - topOffset}px`;
 
     const ctx = this.botCanvas.getContext("2d");
     if (!ctx) return;
 
     const focus = State.focusTask;
     // While a plan card is open Mochi wears the plan's colour, like its pill.
-    // The main workspace pill and desktop window pills keep bodyColor = null so
-    // Mochi renders with his full 3D gradient, specular highlight, and state tint.
-    this.engine.bodyColor = planCardOpen()
-      ? hexToRGB(openPlanColor())
-      : focus?.isIntegration && focus.id !== State.mainPillId
-        ? hexToRGB(focus.color)
-        : null;
+    // All other pills keep bodyColor = null so Mochi always renders with his
+    // full 3D gradient, specular highlight, and bright state tint.
+    this.engine.bodyColor = planCardOpen() ? hexToRGB(openPlanColor()) : null;
     this.engine.particleOverhang = BOT_OVERHANG;
     this.engine.lookX = this.lookX();
     this.engine.lookY = this.lookY();
@@ -1369,9 +1369,12 @@ export class Island {
     this.engine.setOutfit(showOutfit ? outfit : "none", !inWardrobe);
 
     this.engine.update(dt);
-    ctx.setTransform(dpr, 0, 0, dpr, BOT_SIDE * dpr, 0);
-    ctx.clearRect(-BOT_SIDE, 0, wCss, hCss);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.globalAlpha = 1.0;
+    ctx.globalCompositeOperation = "source-over";
+    ctx.clearRect(0, 0, canvasW, canvasH);
     ctx.save();
+    ctx.translate(leftOffset + BOT_SIDE, topOffset);
     this.engine.applyDance(ctx, w, hCss);
     this.engine.draw(ctx, w, hCss);
     ctx.restore();

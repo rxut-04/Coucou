@@ -383,6 +383,19 @@ pub fn unblock_webview_drops(_app: &AppHandle) {}
 /// up to the window manager.
 pub fn make_non_activating(win: &WebviewWindow) {
     let Ok(gw) = win.gtk_window() else { return };
+    gw.set_app_paintable(true);
+    if let Some(screen) = gtk::prelude::GtkWindowExt::screen(&gw) {
+        if let Some(visual) = screen.rgba_visual() {
+            gw.set_visual(Some(&visual));
+        }
+    }
+    gw.connect_draw(|_, cr| {
+        cr.set_source_rgba(0.0, 0.0, 0.0, 0.0);
+        cr.set_operator(gtk::cairo::Operator::Clear);
+        let _ = cr.paint();
+        cr.set_operator(gtk::cairo::Operator::Over);
+        gtk::glib::Propagation::Proceed
+    });
     // The pointer watch reports the pointer leaving on every kind of window:
     // a regular one (GNOME, X11) misses `mouseout` just as a layer surface does.
     ISLAND_GTK.with(|cell| *cell.borrow_mut() = Some(gw.clone()));

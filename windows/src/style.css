@@ -2,8 +2,6 @@
    Every colour below is copied from the Swift views. */
 
 :root {
-  color-scheme: dark;
-
   /* After the Latin fonts: the scripts of the other interface languages —
      Devanagari and Bengali (Nirmala UI), Simplified Chinese (Microsoft YaHei)
      on Windows, the Noto families on Linux. Arabic and Cyrillic are in Segoe UI. */
@@ -50,7 +48,8 @@ html,
 body {
   width: 100%;
   height: 100%;
-  background: transparent;
+  background: transparent !important;
+  background-color: rgba(0, 0, 0, 0) !important;
   overflow: hidden;
   font-family: var(--font);
   color: var(--ink);
@@ -62,6 +61,7 @@ body {
 #root {
   position: fixed;
   inset: 0;
+  background: transparent !important;
 }
 
 /* Invisible strip that wakes the island when it is hidden. */
@@ -82,6 +82,9 @@ body {
   top: 0;
   left: 50%;
   background: #000;
+  color-scheme: dark;
+  opacity: 1;
+  filter: none;
   border-radius: 0 0 14px 14px;
   overflow: visible;
   will-change: width, height, transform;

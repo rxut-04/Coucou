@@ -14,15 +14,16 @@ import { DEFAULT_SETTINGS, State } from "../src/core/state.ts";
 test("the catalog holds the Mac's pills, in the Mac's order, with the Mac's values", () => {
   // Copied from NotchBuddy/Sources/CoucouKit/PillCatalog.swift: an ID is a
   // contract value, and a colour or subtitle that drifts is a visible bug.
+  // Two colours are Windows' own brand colours rather than the Mac's.
   const mac = [
-    ["integration_claude", "VS Code", "#F5F6F8", "workspace", "Integration"],
+    ["integration_claude", "VS Code", "#0078D4", "workspace", "Integration"],
     ["agent_cursor", "Cursor", "#C0C4CC", "workspace", "Integration"],
     ["agent_antigravity", "Antigravity", "#E879F9", "workspace", "Integration"],
     ["agent_codex", "Codex", "#2DD4BF", "workspace", "Integration"],
     ["agent_gemini", "Gemini CLI", "#8AB4F8", "agent", "Agent"],
     ["agent_copilot", "Copilot CLI", "#818CF8", "agent", "Agent"],
     ["agent_muse", "Muse Code", "#38BDF8", "agent", "Agent"],
-    ["agent_opencode", "OpenCode", "#4ADE80", "agent", "Agent"],
+    ["agent_opencode", "OpenCode", "#00D4AA", "agent", "Agent"],
     ["agent_amp", "Amp", "#F59E0B", "agent", "Agent"],
     ["agent_hermes", "Hermes", "#C084FC", "agent", "Agent"],
     ["agent_claude-desktop", "Claude Desktop", "#D97757", "agent", "Agent"],
@@ -51,7 +52,7 @@ test("the catalog holds the Mac's pills, in the Mac's order, with the Mac's valu
 
 test("the pills Windows always had keep their IDs, names, colours and sources", () => {
   const shipped = [
-    ["integration_claude", "VS Code", "#F5F6F8", "claudeCode"],
+    ["integration_claude", "VS Code", "#0078D4", "claudeCode"],
     ["integration_resend", "Resend", "#22C55E", "n8n"],
     ["integration_n8n", "n8n", "#F29B38", "n8n"],
     ["integration_vercel", "Vercel", "#7C5CFF", "n8n"],
@@ -275,3 +276,29 @@ test("toggling declares up to four pills and never the main one", () => {
   assert.ok(!ids().includes("agent_gemini"));
   assert.equal(State.focusId, "integration_claude");
 });
+
+test("compact avatar and seasonal witch hat never clip at y=0 and window transparency stays intact", async () => {
+  const { botPosition } = await import("../src/core/layout.ts");
+  const { getIslandSizeConfig } = await import("../src/core/size-config.ts");
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+
+  for (const preset of ["compact", "comfortable", "large"]) {
+    const cfg = getIslandSizeConfig(preset);
+    const pos = botPosition("compact", "overview", cfg.compactNotchHeight, 0, 34, preset);
+    assert.equal(pos.opacity, 1, `compact avatar opacity must be 1 for ${preset}`);
+    const w = pos.diameter / 0.6;
+    const ry = w * 0.255;
+    const witchHatTopY = pos.cy - 1.96 * ry;
+    const bodyBottomY = pos.cy + ry;
+    assert.ok(witchHatTopY >= 6, `witch hat top (${witchHatTopY}) must stay >= 6px inside compact bar for ${preset}`);
+    assert.ok(bodyBottomY <= cfg.compactNotchHeight - 5, `body bottom (${bodyBottomY}) must stay inside compactNotchHeight (${cfg.compactNotchHeight}) for ${preset}`);
+  }
+
+  const css = fs.readFileSync(path.resolve("src/style.css"), "utf8");
+  assert.match(css, /background:\s*transparent\s*!important/, "html/body must enforce background: transparent !important");
+  const tauriConf = JSON.parse(fs.readFileSync(path.resolve("src-tauri/tauri.conf.json"), "utf8"));
+  const islandWin = tauriConf.app.windows.find((w) => w.label === "island");
+  assert.equal(islandWin.transparent, true, "island window in tauri.conf.json must have transparent: true");
+});
+
