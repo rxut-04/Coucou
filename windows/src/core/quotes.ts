@@ -666,3 +666,31 @@ export function getQuoteForWindow(resourceClass: string, title = ""): string {
   const category = classifySessionCategory(resourceClass, title);
   return getRandomQuote(category);
 }
+
+export const NIGHT_WIND_DOWN_QUOTES: string[] = [
+  "🌙 Late-night wind-down: commit a clean checkpoint — tomorrow's rested mind solves in 10 minutes what midnight takes 2 hours to debug.",
+  "🌙 Night mode active: wrap up your current diff, leave a breadcrumb note, and give your eyes a break.",
+  "🌙 Great engineers know when to ship and when to rest. Save your progress and let your subconscious work overnight.",
+  "🌙 Quiet hours: finish the small piece in front of you, push your branch, and power down with pride.",
+  "🌙 Your code will still be here in the morning — your focus and health come first tonight.",
+  "🌙 Wind-down check: soften the screen brightness, take a slow breath, and close out today's loop.",
+  "🌙 Midnight clarity comes from rest, not one more caffeine-fueled refactor. Commit and recharge.",
+  "🌙 You built real momentum today. Leave a quick 'next step' task so tomorrow starts effortlessly.",
+  "🌙 Sleep is the ultimate garbage collector for a busy engineering mind. Time to wind down.",
+  "🌙 Step away while the build is green — ending on a win makes tomorrow morning twice as productive.",
+  "🌙 Gentle night reminder: unclench your shoulders, sip some water, and wrap up your final commit.",
+  "🌙 Deep work needs deep recovery. Close the extra tabs and let tonight be restful.",
+];
+
+let lastNightQuoteIdx = -1;
+
+export function getNightWindDownQuote(): string {
+  if (NIGHT_WIND_DOWN_QUOTES.length === 0) return "🌙 Time to wind down and rest well.";
+  let idx = Math.floor(Math.random() * NIGHT_WIND_DOWN_QUOTES.length);
+  if (idx === lastNightQuoteIdx) {
+    idx = (idx + 1) % NIGHT_WIND_DOWN_QUOTES.length;
+  }
+  lastNightQuoteIdx = idx;
+  return NIGHT_WIND_DOWN_QUOTES[idx];
+}
+

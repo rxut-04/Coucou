@@ -238,6 +238,13 @@ export const Bridge = {
     call<MorningRecapData>("morning_recap_get", { forceDemo }),
   morningRecapDismiss: () => call<boolean>("morning_recap_dismiss"),
 
+  // ── Phase 7: Night & Health Mode (health_mode.rs) ─────────────────────────
+  healthModeStatus: () => call<HealthStatusSnapshot>("health_mode_status"),
+  healthModeTrigger: (kind: string) =>
+    call<HealthStatusSnapshot>("health_mode_trigger", { kind }),
+  healthModeActivityPing: () => call<boolean>("health_mode_activity_ping"),
+  healthModeAcknowledge: () => call<boolean>("health_mode_acknowledge"),
+
   // ── Mochi on the desktop (src-tauri/src/desktop.rs) ───────────────────────
   desktopInfo: () => call<DesktopInfo>("desktop_mochi_info"),
   /** Dragged out of the island: (x, y) is the pointer in island-window coordinates. */
@@ -257,6 +264,44 @@ export const Bridge = {
   /** Asleep, the cursor poll stops. */
   desktopSetAsleep: (asleep: boolean) => call<void>("desktop_mochi_set_asleep", { asleep }),
 };
+
+export interface HealthConfig {
+  enabled: boolean;
+  nightStartHour: number;
+  nightEndHour: number;
+  eyeIntervalSecs: number;
+  waterIntervalSecs: number;
+  postureIntervalSecs: number;
+  idleThresholdSecs: number;
+  cooldownBetweenRemindersSecs: number;
+}
+
+export interface HealthReminderEvent {
+  kind: "eye" | "water" | "posture" | "night" | string;
+  title: string;
+  message: string;
+  detail: string;
+  timestamp: number;
+}
+
+export interface HealthStatusSnapshot {
+  config: HealthConfig;
+  configPath: string;
+  isNightMode: boolean;
+  currentLocalHour: number;
+  isIdle: boolean;
+  idleSecs: number;
+  idleSource: string;
+  activeStretchSecs: number;
+  eyeElapsedSecs: number;
+  eyeRemainingSecs: number;
+  waterElapsedSecs: number;
+  waterRemainingSecs: number;
+  postureElapsedSecs: number;
+  postureRemainingSecs: number;
+  activeReminder: HealthReminderEvent | null;
+  remindersFiredCount: number;
+}
 
 export interface DailyGoalRecord {
   id: number;

@@ -1,0 +1,10 @@
+{
+  "enabled": true,
+  "nightStartHour": 23,
+  "nightEndHour": 5,
+  "eyeIntervalSecs": 1200,
+  "waterIntervalSecs": 2700,
+  "postureIntervalSecs": 3600,
+  "idleThresholdSecs": 180,
+  "cooldownBetweenRemindersSecs": 120
+}

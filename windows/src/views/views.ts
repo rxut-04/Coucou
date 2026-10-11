@@ -345,12 +345,28 @@ export function buildHeader(actions: ViewActions): ViewHost {
     h("span", { text: "🌅" }),
   );
 
+  // ── Phase 7: Night & Health Mode Pill ("🌿" / "🌙" / "💤")
+  const healthModeLabel = h("span", { class: "p7-health-label", text: "🌿" });
+  const healthModePill = h(
+    "button",
+    {
+      class: "p3-pill p7-health-pill",
+      title: "Night & Health Mode (Eye 20m · Water 45m · Posture 60m · Night 23:00)",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        Workflow.toggleHealthCard();
+      },
+    },
+    healthModeLabel,
+  );
+
   const phase3Bar = h(
     "div",
     { class: "phase3-bar" },
     taskPillEl,
     dailyGoalsPill,
     morningRecapBtn,
+    healthModePill,
     focusStartBtn,
     focusActivePill,
     agentWaitPill,
@@ -375,6 +391,23 @@ export function buildHeader(actions: ViewActions): ViewHost {
       ? `Today's goals (${goalsDone}/${goalsTotal}):\n` + goals.map((g) => `${g.done ? "✅" : "⬜"} ${g.slot}. ${g.title}`).join("\n")
       : "Click to view & toggle today's 3 daily goals";
     morningRecapBtn.classList.toggle("active", State.showingMorningRecap);
+
+    const hs = State.healthStatus;
+    healthModePill.classList.toggle("active", State.showingHealthCard);
+    healthModePill.classList.toggle("night", Boolean(hs?.isNightMode));
+    healthModePill.classList.toggle("idle", Boolean(hs?.isIdle));
+    if (hs?.isIdle) {
+      healthModeLabel.textContent = "💤 Idle";
+      healthModePill.title = `Wayland Idle (${hs.idleSource}) — All timers paused`;
+    } else if (hs?.isNightMode) {
+      healthModeLabel.textContent = "🌙 Night";
+      healthModePill.title = `Night Wind-Down active (start ${hs.config.nightStartHour}:00) — Click for Health & Night controls`;
+    } else {
+      healthModeLabel.textContent = "🌿";
+      healthModePill.title = hs
+        ? `Health timers active · Next: 👀 ${Math.ceil(hs.eyeRemainingSecs / 60)}m · 💧 ${Math.ceil(hs.waterRemainingSecs / 60)}m · 🧘 ${Math.ceil(hs.postureRemainingSecs / 60)}m`
+        : "Night & Health Mode";
+    }
 
     const session = State.focusSession;
     if (!session) {
@@ -520,7 +553,7 @@ function buildOverview(actions: ViewActions): ViewHost {
   let pillIds = "";
   let detailOpen = false;
   let lastFocus: string | null = null;
-  let mode: "ticker" | "card" | "plan" | "diff" | "workflow" | "recap" | "goals" | null = null;
+  let mode: "ticker" | "card" | "plan" | "diff" | "workflow" | "recap" | "goals" | "health" | null = null;
   let cardKey = "";
 
   // Leaving the overview or folding the island closes the diff, as on macOS.
@@ -616,6 +649,10 @@ function buildOverview(actions: ViewActions): ViewHost {
         mode = null;
         cardKey = "";
       }
+      if (mode === "health" && !State.showingHealthCard) {
+        mode = null;
+        cardKey = "";
+      }
 
       if (planOpen) {
         if (mode !== "plan") {
@@ -642,6 +679,15 @@ function buildOverview(actions: ViewActions): ViewHost {
           mode = "goals";
           clear(leftBody);
           leftBody.append(renderDailyGoalsCard());
+        }
+      } else if (State.showingHealthCard) {
+        const hs = State.healthStatus;
+        const key = `health~${hs?.isNightMode ?? false}~${hs?.isIdle ?? false}~${hs?.eyeRemainingSecs ?? 0}~${hs?.waterRemainingSecs ?? 0}~${hs?.postureRemainingSecs ?? 0}~${hs?.activeReminder?.kind ?? ""}`;
+        if (key !== cardKey) {
+          cardKey = key;
+          mode = "health";
+          clear(leftBody);
+          leftBody.append(renderHealthModeCard());
         }
       } else if (task && diff) {
         const key = `diff~${task.id}~${diff.id}`;
@@ -721,7 +767,7 @@ function buildOverview(actions: ViewActions): ViewHost {
       }
 
       jump.style.display =
-        detailOpen || mode === "plan" || mode === "diff" || mode === "workflow" || mode === "recap" || mode === "goals"
+        detailOpen || mode === "plan" || mode === "diff" || mode === "workflow" || mode === "recap" || mode === "goals" || mode === "health"
           ? "none"
           : "";
 
@@ -752,6 +798,116 @@ export function hasSessionTicker(task: AgentTask): boolean {
   const isSession = category === "workspace" || category === "agent" ||
     (category == null && task.id.startsWith("agent_"));
   return isSession && (task.state !== "idle" || task.steps.length > 0);
+}
+
+function renderHealthModeCard(): HTMLElement {
+  const hs = State.healthStatus;
+  const eyeMins = hs ? Math.ceil(hs.eyeRemainingSecs / 60) : 20;
+  const waterMins = hs ? Math.ceil(hs.waterRemainingSecs / 60) : 45;
+  const postureMins = hs ? Math.ceil(hs.postureRemainingSecs / 60) : 60;
+  const nightStart = hs?.config.nightStartHour ?? 23;
+  const stateBadge = hs?.isIdle
+    ? `💤 Idle (${hs.idleSource}) · Timers paused`
+    : hs?.isNightMode
+      ? `🌙 Night wind-down (${nightStart}:00+)`
+      : `⚡ Active (${formatDurationCompact(hs?.activeStretchSecs ?? 0)})`;
+
+  return h(
+    "div",
+    { class: "int-card wf-card p7-health-card" },
+    h(
+      "div",
+      { class: "int-head p6-card-head" },
+      dot(hs?.isIdle ? "#94A3B8" : hs?.isNightMode ? "#818CF8" : "#10B981", 7),
+      h("b", { text: "🌿 Night & Health Mode" }),
+      h("span", { text: stateBadge }),
+      h(
+        "button",
+        {
+          class: "p3-btn p6-close-btn",
+          title: "Close Night & Health card",
+          onclick: (e: Event) => {
+            e.stopPropagation();
+            Workflow.toggleHealthCard();
+          },
+        },
+        h("span", { text: "✕" }),
+      ),
+    ),
+    h(
+      "div",
+      { class: "p6-recap-line" },
+      h("span", { class: "p6-chip", text: `👀 Eye: ${eyeMins}m` }),
+      h("span", { class: "p6-chip", text: `💧 Water: ${waterMins}m` }),
+      h("span", { class: "p6-chip", text: `🧘 Posture: ${postureMins}m` }),
+      h("span", { class: "p6-chip", text: `🌙 Night: ${nightStart}:00` }),
+    ),
+    h(
+      "div",
+      { class: "p7-demo-row" },
+      h("span", { class: "p7-demo-lbl", text: "Fast-forward:" }),
+      h(
+        "button",
+        {
+          class: "p3-btn p7-demo-btn",
+          title: "Trigger 20-20-20 Eye reminder",
+          onclick: (e: Event) => {
+            e.stopPropagation();
+            void Workflow.triggerHealthDemo("eye");
+          },
+        },
+        h("span", { text: "👀 Eye" }),
+      ),
+      h(
+        "button",
+        {
+          class: "p3-btn p7-demo-btn",
+          title: "Trigger Hydration reminder",
+          onclick: (e: Event) => {
+            e.stopPropagation();
+            void Workflow.triggerHealthDemo("water");
+          },
+        },
+        h("span", { text: "💧 Water" }),
+      ),
+      h(
+        "button",
+        {
+          class: "p3-btn p7-demo-btn",
+          title: "Trigger Posture reminder",
+          onclick: (e: Event) => {
+            e.stopPropagation();
+            void Workflow.triggerHealthDemo("posture");
+          },
+        },
+        h("span", { text: "🧘 Posture" }),
+      ),
+      h(
+        "button",
+        {
+          class: "p3-btn p7-demo-btn",
+          title: "Toggle Night Wind-Down mode",
+          onclick: (e: Event) => {
+            e.stopPropagation();
+            void Workflow.triggerHealthDemo(hs?.isNightMode ? "day" : "night");
+          },
+        },
+        h("span", { text: hs?.isNightMode ? "☀️ Day" : "🌙 Night" }),
+      ),
+      h(
+        "button",
+        {
+          class: "p3-btn p7-demo-btn",
+          title: "Toggle Wayland Idle simulation (pauses all timers)",
+          onclick: (e: Event) => {
+            e.stopPropagation();
+            void Workflow.triggerHealthDemo(hs?.isIdle ? "active" : "idle");
+          },
+        },
+        h("span", { text: hs?.isIdle ? "▶ Resume" : "💤 Idle" }),
+      ),
+    ),
+  );
 }
 
 function renderMorningRecapCard(recap: import("../core/bridge").MorningRecapData): HTMLElement {

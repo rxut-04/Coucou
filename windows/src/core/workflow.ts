@@ -7,10 +7,17 @@ import {
   type AgentLiveStatus,
   type AgentWaitEventPayload,
   type BrowserDomainEvent,
+  type HealthReminderEvent,
 } from "./bridge";
 import { Sound } from "./sound";
 import { State } from "./state";
-import { classifySessionCategory, getQuoteForWindow, getRandomQuote, type QuoteCategory } from "./quotes";
+import {
+  classifySessionCategory,
+  getNightWindDownQuote,
+  getQuoteForWindow,
+  getRandomQuote,
+  type QuoteCategory,
+} from "./quotes";
 
 export type AppType =
   | "vscode"
@@ -139,7 +146,107 @@ class WorkflowEngine {
     void this.initBrowserIntent();
     void this.initAgentMonitor();
     void this.initDailyGoalsAndRecap();
+    void this.initHealthMode();
     this.startTracking();
+  }
+
+  private async initHealthMode() {
+    const snap = await Bridge.healthModeStatus();
+    if (snap) {
+      State.healthStatus = snap;
+      if (snap.isNightMode) {
+        State.lastWorkflowQuote = getNightWindDownQuote();
+      }
+      State.notify();
+    }
+
+    await onEvent<HealthReminderEvent>("health-reminder-event", (evt) => {
+      if (!evt) return;
+      void Bridge.healthModeStatus().then((latest) => {
+        if (latest) State.healthStatus = latest;
+      });
+      this.showNotification({
+        message: `${evt.title}: ${evt.message}`,
+        detail: evt.detail,
+      });
+    });
+
+    if (typeof window !== "undefined") {
+      let lastPing = 0;
+      const onUserInteract = () => {
+        const now = Date.now();
+        if (now - lastPing > 5000) {
+          lastPing = now;
+          void Bridge.healthModeActivityPing();
+        }
+      };
+      window.addEventListener("mousemove", onUserInteract, { passive: true });
+      window.addEventListener("keydown", onUserInteract, { passive: true });
+      window.addEventListener("mousedown", onUserInteract, { passive: true });
+    }
+  }
+
+  toggleHealthCard() {
+    State.showingHealthCard = !State.showingHealthCard;
+    if (State.showingHealthCard) {
+      State.showingMorningRecap = false;
+      State.showingDailyGoalsCard = false;
+      void Bridge.healthModeStatus().then((snap) => {
+        if (snap) {
+          State.healthStatus = snap;
+          State.notify();
+        }
+      });
+    }
+    Sound.play("blip");
+    State.notify();
+  }
+
+  async triggerHealthDemo(kind: "eye" | "water" | "posture" | "night" | "day" | "idle" | "active") {
+    const snap = await Bridge.healthModeTrigger(kind);
+    if (snap) {
+      State.healthStatus = snap;
+      if (kind === "night" || snap.isNightMode) {
+        State.lastWorkflowQuote = getNightWindDownQuote();
+      } else if (kind === "day") {
+        State.lastWorkflowQuote = getRandomQuote(this.resolveActiveCategory());
+      }
+      if (snap.activeReminder && (kind === "eye" || kind === "water" || kind === "posture" || kind === "night")) {
+        this.showNotification({
+          message: `${snap.activeReminder.title}: ${snap.activeReminder.message}`,
+          detail: snap.activeReminder.detail,
+        });
+      } else {
+        Sound.play("blip");
+        State.notify();
+      }
+    }
+  }
+
+  async acknowledgeHealthReminder() {
+    await Bridge.healthModeAcknowledge();
+    if (State.healthStatus) {
+      State.healthStatus.activeReminder = null;
+    }
+    Sound.play("blip");
+    State.notify();
+  }
+
+  private tickHealthMode() {
+    if (this.agentPollCounter % 2 === 0) {
+      void Bridge.healthModeStatus().then((snap) => {
+        if (!snap) return;
+        const prevNight = State.healthStatus?.isNightMode;
+        const prevIdle = State.healthStatus?.isIdle;
+        State.healthStatus = snap;
+        if (snap.isNightMode && !prevNight) {
+          State.lastWorkflowQuote = getNightWindDownQuote();
+        }
+        if (snap.isNightMode !== prevNight || snap.isIdle !== prevIdle) {
+          State.notify();
+        }
+      });
+    }
   }
 
   private async initDailyGoalsAndRecap() {
@@ -192,6 +299,7 @@ class WorkflowEngine {
     State.showingDailyGoalsCard = !State.showingDailyGoalsCard;
     if (State.showingDailyGoalsCard) {
       State.showingMorningRecap = false;
+      State.showingHealthCard = false;
       void Bridge.dailyGoalsList().then((goals) => {
         if (goals) {
           State.dailyGoals = goals;
@@ -214,6 +322,7 @@ class WorkflowEngine {
     if (recap) {
       State.morningRecap = recap;
       State.showingDailyGoalsCard = false;
+      State.showingHealthCard = false;
       State.showingMorningRecap = true;
       Sound.play("peek");
       State.notify();
@@ -436,6 +545,7 @@ class WorkflowEngine {
   private tickBrowserSession() {
     const session = State.browserSession;
     if (!session) return;
+    if (State.healthStatus?.isIdle) return;
 
     session.remainingSecs = Math.max(0, session.remainingSecs - 1);
     session.elapsedSecs += 1;
@@ -564,7 +674,7 @@ class WorkflowEngine {
   private tickFocusSession() {
     const session = State.focusSession;
     if (!session) return;
-    if (session.paused) return;
+    if (session.paused || State.healthStatus?.isIdle) return;
 
     session.remainingSecs = Math.max(0, session.remainingSecs - 1);
     session.elapsedSecs += 1;
@@ -626,6 +736,7 @@ class WorkflowEngine {
     this.tickFocusSession();
     this.tickBrowserSession();
     this.tickAgentMonitor();
+    this.tickHealthMode();
     this.checkNotifications();
   }
 
@@ -641,7 +752,9 @@ class WorkflowEngine {
           console.log(`[workflow] App changed: ${this.currentApp} -> ${newApp}`);
           this.currentApp = newApp;
           this.appStartTime = Date.now();
-          State.lastWorkflowQuote = getRandomQuote(newApp as QuoteCategory);
+          State.lastWorkflowQuote = State.healthStatus?.isNightMode
+            ? getNightWindDownQuote()
+            : getRandomQuote(newApp as QuoteCategory);
           if (newApp === "browser") {
             if (!State.browserSession) {
               State.browserPromptOpen = true;
@@ -658,7 +771,9 @@ class WorkflowEngine {
           );
           if (fallbackApp !== "other") {
             this.currentApp = fallbackApp;
-            State.lastWorkflowQuote = getRandomQuote(fallbackApp as QuoteCategory);
+            State.lastWorkflowQuote = State.healthStatus?.isNightMode
+              ? getNightWindDownQuote()
+              : getRandomQuote(fallbackApp as QuoteCategory);
             if (fallbackApp === "browser" && !State.browserSession) {
               State.browserPromptOpen = true;
             }
@@ -706,6 +821,7 @@ class WorkflowEngine {
 
   private checkNotifications() {
     if (!this.settings.quotesEnabled && !this.settings.workNotificationEnabled) return;
+    if (State.healthStatus?.isIdle) return;
 
     const now = Date.now();
     const interval = Math.max(
@@ -721,8 +837,11 @@ class WorkflowEngine {
     this.lastWorkNotificationTime = now;
 
     // Always pick a fresh, non-repeating motivational quote for the active session
+    // (or a calm wind-down quote when Night Mode is active)
     const category = this.resolveActiveCategory();
-    const freshQuote = getRandomQuote(category);
+    const freshQuote = State.healthStatus?.isNightMode
+      ? getNightWindDownQuote()
+      : getRandomQuote(category);
     const focusDetail = this.formatFocusDetail(now, category);
 
     this.showNotification({

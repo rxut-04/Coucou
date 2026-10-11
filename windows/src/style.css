@@ -1968,6 +1968,63 @@ input[type="range"]::-webkit-slider-thumb {
   text-overflow: ellipsis;
 }
 
+/* ── Phase 7: Night & Health Mode ("🌿" / "🌙 Night" / "💤 Idle") ─────────── */
+
+.p7-health-pill {
+  cursor: pointer;
+  padding: 0 7px;
+  background: rgba(16, 185, 129, 0.14);
+  border-color: rgba(16, 185, 129, 0.34);
+  color: #6ee7b7;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.p7-health-pill:hover,
+.p7-health-pill.active {
+  background: rgba(16, 185, 129, 0.28);
+  border-color: rgba(16, 185, 129, 0.55);
+}
+
+.p7-health-pill.night {
+  background: rgba(129, 140, 248, 0.18);
+  border-color: rgba(129, 140, 248, 0.45);
+  color: #c7d2fe;
+}
+
+.p7-health-pill.idle {
+  background: rgba(148, 163, 184, 0.18);
+  border-color: rgba(148, 163, 184, 0.42);
+  color: #cbd5e1;
+}
+
+.p7-demo-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-top: 2px;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+.p7-demo-lbl {
+  font: 500 9.5px var(--font);
+  color: var(--dim-3);
+  margin-right: 2px;
+}
+
+.p7-demo-btn {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--ink-2);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 1px 5px;
+  font: 600 9px var(--font);
+}
+
+.p7-demo-btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+
 /* Power features: a notification makes the island's edge glow for a second
    (src/core/power.ts → PowerEngine.flashIsland). */
 #island.flash-border {

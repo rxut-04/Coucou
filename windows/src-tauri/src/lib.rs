@@ -37,6 +37,7 @@ mod browser_intent;
 mod classify;
 mod db;
 mod engine;
+mod health_mode;
 
 use focus_tracker::{focus_tracker_is_coding, focus_tracker_window_info};
 
@@ -630,6 +631,9 @@ pub fn run() {
     if db::handle_cli_args() {
         return;
     }
+    if health_mode::handle_cli().is_some() {
+        return;
+    }
     platform::prepare_environment();
     let loaded = settings::load();
     i18n::set_picked(&loaded.language);
@@ -660,6 +664,7 @@ pub fn run() {
         .manage(Arc::new(focus_tracker::FocusTrackerState::default()))
         .manage(Arc::new(browser_intent::BrowserIntentState::default()))
         .manage(Arc::new(agent_monitor::AgentMonitorState::new()))
+        .manage(Arc::new(health_mode::HealthModeState::new()))
         .manage(db::DbState::new(db::default_db_path()))
         .manage(Pending::default())
         .manage(Chat::default())
@@ -757,6 +762,10 @@ pub fn run() {
             agent_monitor::agent_monitor_status,
             agent_monitor::agent_monitor_acknowledge,
             agent_monitor::agent_monitor_trigger,
+            health_mode::health_mode_status,
+            health_mode::health_mode_trigger,
+            health_mode::health_mode_activity_ping,
+            health_mode::health_mode_acknowledge,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -773,6 +782,7 @@ pub fn run() {
                 browser_intent::start(handle.clone());
                 let monitor_state = handle.state::<Arc<agent_monitor::AgentMonitorState>>().inner().clone();
                 agent_monitor::spawn_agent_monitor(handle.clone(), monitor_state);
+                health_mode::start(handle.clone());
             }
 
             if let Some(win) = island::window(&handle) {

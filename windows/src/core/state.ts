@@ -17,6 +17,7 @@ import {
   type AgentLiveStatus,
   type DailyGoalRecord,
   type DomainCategory,
+  type HealthStatusSnapshot,
   type MorningRecapData,
   type TaskRecord,
   type WeeklyAgentWaitStats,
@@ -523,6 +524,10 @@ class AppState {
   showingMorningRecap = false;
   /** Phase 6: Whether the interactive Daily Goals card is open in the main left card. */
   showingDailyGoalsCard = false;
+  /** Phase 7: Night & Health Mode status snapshot (idle, night wind-down, eye/water/posture timers). */
+  healthStatus: HealthStatusSnapshot | null = null;
+  /** Phase 7: Whether the interactive Night & Health Mode card is open in the main left card. */
+  showingHealthCard = false;
   /**
    * Mochi is out of the island — on the desktop, flying, or being dragged
    * there — so the island's own Mochi is hidden (AppState.mochiOnDesktop).
