@@ -776,6 +776,7 @@ pub fn run() {
             db::stats_dashboard_get,
             db::layout_stress_test_status,
             db::layout_stress_test_set,
+            db::report_layout_metrics,
             browser_intent::browser_intent_status,
             browser_intent::browser_intent_record_session,
             agent_monitor::agent_monitor_status,

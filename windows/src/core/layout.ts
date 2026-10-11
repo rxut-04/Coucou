@@ -70,30 +70,30 @@ export const WAKE_STRIP_W = 240;
 export const WAKE_STRIP_H = 6;
 
 export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
-  overview: { height: 204, botX: 74, botY: null, botDiameter: 66, agentMode: "pills" },
-  empty: { height: 184, botX: 74, botY: null, botDiameter: 66, agentMode: "none" },
-  approval: { height: 184, botX: 68, botY: null, botDiameter: 60, agentMode: "column" },
-  question: { height: 184, botX: 68, botY: null, botDiameter: 60, agentMode: "column" },
-  error: { height: 184, botX: 68, botY: null, botDiameter: 62, agentMode: "column" },
-  finished: { height: 184, botX: 68, botY: null, botDiameter: 62, agentMode: "column" },
-  confused: { height: 184, botX: 78, botY: null, botDiameter: 68, agentMode: "column" },
-  upload: { height: 184, botX: 140, botY: 104, botDiameter: 62, agentMode: "column" },
+  overview: { height: 132, botX: 68, botY: null, botDiameter: 56, agentMode: "pills" },
+  empty: { height: 160, botX: 68, botY: null, botDiameter: 58, agentMode: "none" },
+  approval: { height: 170, botX: 64, botY: null, botDiameter: 56, agentMode: "column" },
+  question: { height: 170, botX: 64, botY: null, botDiameter: 56, agentMode: "column" },
+  error: { height: 170, botX: 64, botY: null, botDiameter: 58, agentMode: "column" },
+  finished: { height: 170, botX: 64, botY: null, botDiameter: 58, agentMode: "column" },
+  confused: { height: 170, botX: 74, botY: null, botDiameter: 64, agentMode: "column" },
+  upload: { height: 176, botX: 140, botY: 104, botDiameter: 62, agentMode: "column" },
   // botY 103 = bar top (42 + 58) + 3, so the dot really rides the bar. The Swift
   // layout says 118 while its own comment says 103; the comment matches the spec.
-  uploading: { height: 184, botX: 46, botY: 103, botDiameter: 20, agentMode: "none" },
-  choose: { height: 184, botX: 66, botY: 101, botDiameter: 56, agentMode: "column" },
+  uploading: { height: 176, botX: 46, botY: 103, botDiameter: 20, agentMode: "none" },
+  choose: { height: 176, botX: 66, botY: 101, botDiameter: 56, agentMode: "column" },
   mail: { height: 240, botX: 62, botY: null, botDiameter: 50, agentMode: "column" },
   prompt: { height: 204, botX: 58, botY: null, botDiameter: 50, agentMode: "column" },
-  searching: { height: 184, botX: 58, botY: null, botDiameter: 50, agentMode: "column" },
-  result: { height: 184, botX: 58, botY: null, botDiameter: 50, agentMode: "column" },
-  note: { height: 184, botX: 66, botY: null, botDiameter: 56, agentMode: "column" },
+  searching: { height: 170, botX: 58, botY: null, botDiameter: 50, agentMode: "column" },
+  result: { height: 170, botX: 58, botY: null, botDiameter: 50, agentMode: "column" },
+  note: { height: 170, botX: 64, botY: null, botDiameter: 54, agentMode: "column" },
   settings: { height: 210, botX: 60, botY: null, botDiameter: 52, agentMode: "none" },
   greeting: { height: 150, botX: 320, botY: 90, botDiameter: 0, agentMode: "none" },
   // Mac: 160. The extra 24 hold the two lines with top agent, project, busiest
   // day, longest session, permissions and questions, which the Mac card leaves
   // to the shared image.
-  recap: { height: 204, botX: 68, botY: null, botDiameter: 62, agentMode: "column" },
-  wardrobe: { height: 184, botX: 74, botY: null, botDiameter: 64, agentMode: "none" },
+  recap: { height: 196, botX: 68, botY: null, botDiameter: 58, agentMode: "column" },
+  wardrobe: { height: 176, botX: 68, botY: null, botDiameter: 58, agentMode: "none" },
 };
 
 // The upload views above are only the fallback geometry. Once a file is actually
@@ -131,7 +131,7 @@ export function islandSize(
           ? chatPromptHeight(chatCount)
           : view === "overview"
             ? cfg.minOverviewHeight
-            : Math.max(VIEW_LAYOUTS[view].height, cfg.minOverviewHeight - 16);
+            : Math.max(VIEW_LAYOUTS[view].height, cfg.minOverviewHeight);
       return { w: cfg.minExpandedWidth, h: baseH };
     }
   }
@@ -178,10 +178,11 @@ export function botPosition(
       if (layout.botY != null) {
         return { cx: botX, cy: layout.botY + extraHeader, diameter: botDiameter, opacity: 1 };
       }
-      // Centre of the card area below the dynamic header (8 pt top inset + headerH)
+      // Centre of the card area below the dynamic header (8 pt top inset + headerH),
+      // nudged slightly lower (56%) so Mochi + his seasonal hat fit evenly inside a tight card.
       const headerBottom = 8 + Math.max(34, headerH);
-      const bodySpace = Math.max(84, islandH - headerBottom - 10);
-      const cy = headerBottom + bodySpace / 2;
+      const bodySpace = Math.max(76, islandH - headerBottom - 10);
+      const cy = headerBottom + bodySpace * 0.56;
       return { cx: botX, cy, diameter: botDiameter, opacity: 1 };
     }
   }

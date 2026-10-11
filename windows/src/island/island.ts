@@ -759,6 +759,12 @@ export class Island {
   // ── Geometry ────────────────────────────────────────────────────────────────
 
   private lastHeaderHeight = 34;
+  private lastMeasuredContentH = 0;
+  private lastLeftNaturalH = 0;
+  private lastPillsNaturalH = 0;
+  private lastIslandPaddingH = 52;
+  private lastExpandDurationMs = 240;
+  private lastCollapseDurationMs = 200;
 
   private currentHeaderHeight(): number {
     if (State.mode !== "expanded" || State.view === "greeting") return 34;
@@ -771,23 +777,39 @@ export class Island {
     bodyH: number;
   } {
     const overviewEl = this.views?.get("overview")?.el;
-    const minBodyH = Math.max(92, cfg.minOverviewHeight - 52);
+    const minBodyH = cfg.avatarDiameter + 28;
     if (!overviewEl) return { extraW: 0, bodyH: minBodyH };
 
     const badges = this.header?.el?.querySelectorAll<HTMLElement>(".phase3-bar > .p3-pill");
     const badgeCount = badges ? badges.length : 0;
 
+    const leftBodyEl = overviewEl.querySelector<HTMLElement>(".left-body");
     const leftCardEl = overviewEl.querySelector<HTMLElement>(".left-body > *");
-    const leftScrollH = leftCardEl ? leftCardEl.scrollHeight : 0;
+    let leftNaturalH = 0;
+    if (leftBodyEl && leftCardEl) {
+      const prevBodyH = leftBodyEl.style.height;
+      const prevCardFlex = leftCardEl.style.flex;
+      const prevCardH = leftCardEl.style.height;
+      leftBodyEl.style.height = "auto";
+      leftCardEl.style.flex = "0 0 auto";
+      leftCardEl.style.height = "auto";
+      leftNaturalH = leftCardEl.offsetHeight;
+      leftCardEl.style.height = prevCardH;
+      leftCardEl.style.flex = prevCardFlex;
+      leftBodyEl.style.height = prevBodyH;
+    }
 
     const pillCount = State.otherTasks.length;
     const pillRows = Math.ceil(pillCount / 2);
     const pillsNeededH =
-      pillRows > 0 ? pillRows * cfg.pillHeightPx + Math.max(0, pillRows - 1) * 6 + 20 : 0;
+      pillRows > 0 ? pillRows * cfg.pillHeightPx + Math.max(0, pillRows - 1) * 6 + 28 : 0;
 
-    const rawBodyH = Math.max(minBodyH, leftScrollH + 6, pillsNeededH);
+    const rawBodyH = Math.max(minBodyH, leftNaturalH, pillsNeededH);
     const bodyH = Math.min(cfg.maxCardContentHeight, rawBodyH);
     const extraW = badgeCount >= 6 || pillCount >= 6 ? 60 : 0;
+    this.lastLeftNaturalH = leftNaturalH;
+    this.lastPillsNaturalH = pillsNeededH;
+    this.lastMeasuredContentH = bodyH;
     return { extraW, bodyH };
   }
 
@@ -806,6 +828,8 @@ export class Island {
       const maxH = Math.floor(screenH * cfg.maxHeightPercent);
       const hh = this.currentHeaderHeight();
       const extraHeader = State.view !== "greeting" ? Math.max(0, hh - 34) : 0;
+      const islandPadding = hh + 18;
+      this.lastIslandPaddingH = islandPadding;
 
       if (State.view === "question" && State.pendingApproval?.questions) {
         h = Math.max(h, QUESTION_PICKER_H);
@@ -813,36 +837,36 @@ export class Island {
       if (State.view === "overview") {
         const { extraW, bodyH } = this.measureOverviewContent(cfg);
         w = Math.max(w, cfg.minExpandedWidth + extraW);
-        h = Math.max(cfg.minOverviewHeight + extraHeader, bodyH + hh + 20);
+        h = bodyH + islandPadding;
       } else if (State.view === "settings") {
         const settingsStack = this.views?.get("settings")?.el?.querySelector<HTMLElement>(".stack");
         const stackH = settingsStack ? settingsStack.scrollHeight + 20 : 168;
-        h = Math.max(h + extraHeader, stackH + hh + 20);
+        this.lastMeasuredContentH = stackH;
+        h = Math.max(h + extraHeader, stackH + islandPadding);
       } else if (State.view !== "greeting") {
+        this.lastMeasuredContentH = Math.max(0, h - 52);
         h += extraHeader;
       }
 
       w = Math.min(maxW, w);
       h = Math.min(maxH, h);
+    } else if (State.mode === "compact") {
+      this.lastMeasuredContentH = cfg.compactNotchHeight;
+      this.lastIslandPaddingH = 0;
     }
     const r = State.mode === "expanded" ? EXPANDED_CORNER : ROUNDED_CORNER;
     return { w, h, r };
   }
 
   private scheduleWindowResize(targetW: number, targetH: number) {
-    const desiredW =
-      State.mode === "expanded"
-        ? Math.max(PANEL_W, Math.ceil(targetW + HIT_MARGIN * 2 + 12))
-        : PANEL_W;
-    const desiredH =
-      State.mode === "expanded"
-        ? Math.max(PANEL_H, Math.ceil(targetH + HIT_MARGIN * 2 + 16))
-        : PANEL_H;
+    const desiredW = Math.max(NOTCH_W, Math.ceil(targetW));
+    const desiredH = Math.max(32, Math.ceil(targetH));
 
     if (
-      Math.abs(desiredW - this.windowSize.w) < 2 &&
-      Math.abs(desiredH - this.windowSize.h) < 2
+      Math.abs(desiredW - this.windowSize.w) < 1 &&
+      Math.abs(desiredH - this.windowSize.h) < 1
     ) {
+      this.pushLayoutMetrics(targetW, targetH, desiredW, desiredH);
       return;
     }
 
@@ -851,14 +875,54 @@ export class Island {
       window.clearTimeout(this.windowResizeTimer);
       this.windowResizeTimer = null;
     }
-    this.windowResizeTimer = window.setTimeout(
-      () => {
+    if (growing) {
+      this.windowSize = { w: desiredW, h: desiredH };
+      void Bridge.setWindowSize(desiredW, desiredH);
+      this.pushLayoutMetrics(targetW, targetH, desiredW, desiredH);
+    } else {
+      this.windowResizeTimer = window.setTimeout(() => {
         this.windowResizeTimer = null;
         this.windowSize = { w: desiredW, h: desiredH };
         void Bridge.setWindowSize(desiredW, desiredH);
-      },
-      growing ? 16 : 240,
-    );
+        this.pushLayoutMetrics(targetW, targetH, desiredW, desiredH);
+      }, 210);
+    }
+  }
+
+  private pushLayoutMetrics(
+    islandW: number,
+    islandH: number,
+    nativeW: number,
+    nativeH: number,
+  ) {
+    if (typeof window === "undefined" || typeof document === "undefined") return;
+    const htmlBg = window.getComputedStyle(document.documentElement).backgroundColor;
+    const bodyBg = window.getComputedStyle(document.body).backgroundColor;
+    const isTransparent = (bg: string) =>
+      !bg || bg === "transparent" || bg === "rgba(0, 0, 0, 0)";
+    const islandOp = parseFloat(window.getComputedStyle(this.islandEl).opacity || "1");
+    const botOp = parseFloat(this.botCanvas.style.opacity || "1");
+    void Bridge.reportLayoutMetrics({
+      mode: State.mode,
+      view: State.view,
+      sizePreset: State.settings.islandSize,
+      measuredContentHeight: this.lastMeasuredContentH,
+      leftPanelNaturalHeight: this.lastLeftNaturalH,
+      rightPillsNaturalHeight: this.lastPillsNaturalH,
+      headerHeight: this.currentHeaderHeight(),
+      islandPaddingHeight: this.lastIslandPaddingH,
+      islandWidth: Math.round(islandW),
+      islandHeight: Math.round(islandH),
+      nativeWindowWidth: Math.round(nativeW),
+      nativeWindowHeight: Math.round(nativeH),
+      windowBackgroundTransparent: isTransparent(htmlBg) && isTransparent(bodyBg),
+      islandOpacity: islandOp,
+      botCanvasOpacity: botOp,
+      botCenterY: Math.round(this.botCy.target),
+      expandDurationMs: this.lastExpandDurationMs,
+      collapseDurationMs: this.lastCollapseDurationMs,
+      updatedAt: Date.now(),
+    });
   }
 
   private animateGeometry(shrinking: boolean) {

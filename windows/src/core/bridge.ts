@@ -273,6 +273,9 @@ export const Bridge = {
   desktopFlyHome: (forget: boolean) => call<boolean>("desktop_mochi_fly_home", { forget }),
   /** Asleep, the cursor poll stops. */
   desktopSetAsleep: (asleep: boolean) => call<void>("desktop_mochi_set_asleep", { asleep }),
+  /** Reports live layout & visual verification metrics to ~/.cache/coucou/layout-metrics.json. */
+  reportLayoutMetrics: (metrics: Record<string, unknown>) =>
+    call<void>("report_layout_metrics", { metrics }),
 };
 
 export interface ScoreBreakdown {

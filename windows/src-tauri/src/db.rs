@@ -1795,6 +1795,27 @@ pub fn write_layout_stress_state(mode: &str, size_preset: Option<&str>) -> Layou
     state
 }
 
+pub fn layout_metrics_cache_path() -> PathBuf {
+    let base = std::env::var("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+            PathBuf::from(home).join(".cache")
+        });
+    base.join("coucou").join("layout-metrics.json")
+}
+
+#[tauri::command]
+pub fn report_layout_metrics(metrics: serde_json::Value) {
+    let path = layout_metrics_cache_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Ok(pretty) = serde_json::to_string_pretty(&metrics) {
+        let _ = std::fs::write(&path, pretty);
+    }
+}
+
 #[tauri::command]
 pub fn layout_stress_test_status() -> LayoutStressState {
     read_layout_stress_state()
@@ -1826,8 +1847,41 @@ pub fn handle_cli_args() -> bool {
             | "--db-goal-toggle"
             | "--db-stats"
             | "--layout-stress-test"
+            | "--verify-layout"
     ) {
         return false;
+    }
+
+    if first == "--verify-layout" {
+        let path = layout_metrics_cache_path();
+        let raw = std::fs::read_to_string(&path).unwrap_or_else(|_| "{}".to_string());
+        let val: serde_json::Value = serde_json::from_str(&raw).unwrap_or_else(|_| serde_json::json!({}));
+        let window_transparent = val.get("windowBackgroundTransparent").and_then(|v| v.as_bool()).unwrap_or(false);
+        let island_opacity = val.get("islandOpacity").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let bot_opacity = val.get("botCanvasOpacity").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let island_h = val.get("islandHeight").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let win_h = val.get("nativeWindowHeight").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let height_matches = (island_h - win_h).abs() <= 2.0;
+        let ok = window_transparent && island_opacity >= 0.99 && bot_opacity >= 0.99 && height_matches;
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "status": if ok { "ok" } else { "fail" },
+                "checks": {
+                    "windowBackgroundTransparent": window_transparent,
+                    "islandOpacityFull": island_opacity >= 0.99,
+                    "botCanvasOpacityFull": bot_opacity >= 0.99,
+                    "windowHeightMatchesIslandHeight": height_matches,
+                },
+                "metrics": val,
+                "metricsPath": path.to_string_lossy(),
+            }))
+            .unwrap_or_default()
+        );
+        if !ok {
+            std::process::exit(1);
+        }
+        return true;
     }
 
     if first == "--layout-stress-test" {
