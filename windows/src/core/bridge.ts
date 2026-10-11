@@ -247,6 +247,9 @@ export const Bridge = {
 
   // ── Phase 8: Daily Score, XP, Levels, Streaks, Weekly Insight & Chart ─────
   statsDashboardGet: () => call<StatsDashboardData>("stats_dashboard_get"),
+  layoutStressTestStatus: () => call<LayoutStressState>("layout_stress_test_status"),
+  layoutStressTestSet: (mode: string) =>
+    call<LayoutStressState>("layout_stress_test_set", { mode }),
 
   // ── Mochi on the desktop (src-tauri/src/desktop.rs) ───────────────────────
   desktopInfo: () => call<DesktopInfo>("desktop_mochi_info"),
@@ -300,6 +303,12 @@ export interface StatsDashboardData {
   streakDays: number;
   weeklyInsight: string;
   dailyChart: DailyChartPoint[];
+}
+
+export interface LayoutStressState {
+  enabled: boolean;
+  mode: string;
+  updatedAt: number;
 }
 
 export interface HealthConfig {

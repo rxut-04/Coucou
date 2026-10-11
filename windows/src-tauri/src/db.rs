@@ -1727,6 +1727,77 @@ pub fn morning_recap_dismiss(db: State<'_, DbState>) -> bool {
     db.mark_morning_recap_shown()
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LayoutStressState {
+    pub enabled: bool,
+    pub mode: String,
+    pub updated_at: i64,
+}
+
+fn layout_stress_cache_path() -> PathBuf {
+    if let Ok(home) = std::env::var("HOME") {
+        let trimmed = home.trim();
+        if !trimmed.is_empty() {
+            return PathBuf::from(trimmed)
+                .join(".cache")
+                .join("coucou")
+                .join("layout-stress-test.json");
+        }
+    }
+    PathBuf::from("/tmp/coucou-layout-stress-test.json")
+}
+
+pub fn read_layout_stress_state() -> LayoutStressState {
+    let path = layout_stress_cache_path();
+    if let Ok(raw) = std::fs::read_to_string(&path) {
+        if let Ok(parsed) = serde_json::from_str::<LayoutStressState>(&raw) {
+            return parsed;
+        }
+    }
+    LayoutStressState {
+        enabled: false,
+        mode: "off".to_string(),
+        updated_at: 0,
+    }
+}
+
+pub fn write_layout_stress_state(mode: &str) -> LayoutStressState {
+    let clean = mode.trim().to_ascii_lowercase();
+    let enabled = !matches!(clean.as_str(), "off" | "false" | "0" | "none");
+    let state = LayoutStressState {
+        enabled,
+        mode: if enabled {
+            if clean.is_empty() || clean == "true" || clean == "1" {
+                "on".to_string()
+            } else {
+                clean
+            }
+        } else {
+            "off".to_string()
+        },
+        updated_at: unix_now(),
+    };
+    let path = layout_stress_cache_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Ok(pretty) = serde_json::to_string_pretty(&state) {
+        let _ = std::fs::write(&path, pretty);
+    }
+    state
+}
+
+#[tauri::command]
+pub fn layout_stress_test_status() -> LayoutStressState {
+    read_layout_stress_state()
+}
+
+#[tauri::command]
+pub fn layout_stress_test_set(mode: String) -> LayoutStressState {
+    write_layout_stress_state(&mode)
+}
+
 #[tauri::command]
 pub fn stats_dashboard_get(db: State<'_, DbState>) -> StatsDashboardData {
     db.stats_dashboard()
@@ -1747,8 +1818,26 @@ pub fn handle_cli_args() -> bool {
             | "--db-goal-set"
             | "--db-goal-toggle"
             | "--db-stats"
+            | "--layout-stress-test"
     ) {
         return false;
+    }
+
+    if first == "--layout-stress-test" {
+        let mode = args.get(1).map(|s| s.as_str()).unwrap_or("on");
+        let state = write_layout_stress_state(mode);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "status": "ok",
+                "stressTest": state,
+                "cachePath": layout_stress_cache_path().to_string_lossy(),
+                "badgeCount": if state.enabled { 13 } else { 0 },
+                "windowPillCount": if state.enabled { 8 } else { 0 },
+            }))
+            .unwrap_or_default()
+        );
+        return true;
     }
 
     let path = default_db_path();

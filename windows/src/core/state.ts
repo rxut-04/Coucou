@@ -533,6 +533,10 @@ class AppState {
   statsDashboard: StatsDashboardData | null = null;
   /** Phase 8: Whether the Stats & Chart view card is open in the main left card. */
   showingStatsCard = false;
+  /** Phase A-F: Layout stress test mode ("off" | "on" | "recap" | "agent" | "few" | "compact"). */
+  layoutStressMode = "off";
+  /** Phase A-F: Extra status badges injected during layout stress test to reach 12+ badges. */
+  stressExtraBadges: string[] = [];
   /**
    * Mochi is out of the island — on the desktop, flying, or being dragged
    * there — so the island's own Mochi is hidden (AppState.mochiOnDesktop).
@@ -577,6 +581,110 @@ class AppState {
   }
 
   get otherTasks(): AgentTask[] {
+    if (this.layoutStressMode === "on" || this.layoutStressMode === "recap" || this.layoutStressMode === "agent") {
+      const stressWindows: AgentTask[] = [
+        {
+          id: "stress-win-antigravity",
+          name: "Antigravity",
+          color: "#E879F9",
+          state: "working",
+          stepIndex: 0,
+          steps: [],
+          source: "agent",
+          isIntegration: false,
+          pillBadge: "finished",
+          windowCaption: "COUCOU — Antigravity IDE",
+          windowClass: "antigravity",
+        },
+        {
+          id: "stress-win-vscode",
+          name: "VS Code",
+          color: "#3B82F6",
+          state: "working",
+          stepIndex: 0,
+          steps: [],
+          source: "agent",
+          isIntegration: false,
+          windowCaption: "views.ts — Coucou",
+          windowClass: "code",
+        },
+        {
+          id: "stress-win-konsole",
+          name: "Konsole",
+          color: "#F59E0B",
+          state: "idle",
+          stepIndex: 0,
+          steps: [],
+          source: "agent",
+          isIntegration: false,
+          pillBadge: "finished",
+          windowCaption: "cargo test --release",
+          windowClass: "org.kde.konsole",
+        },
+        {
+          id: "stress-win-browser",
+          name: "Browser",
+          color: "#22C55E",
+          state: "idle",
+          stepIndex: 0,
+          steps: [],
+          source: "agent",
+          isIntegration: false,
+          windowCaption: "docs.rs — Brave",
+          windowClass: "brave-browser",
+        },
+        {
+          id: "stress-win-kiro",
+          name: "Kiro",
+          color: "#A855F7",
+          state: "working",
+          stepIndex: 0,
+          steps: [],
+          source: "agent",
+          isIntegration: false,
+          pillBadge: "approval",
+          windowCaption: "Kiro Agent — Architecture spec",
+          windowClass: "kiro",
+        },
+        {
+          id: "stress-win-terminal",
+          name: "Terminal",
+          color: "#10B981",
+          state: "idle",
+          stepIndex: 0,
+          steps: [],
+          source: "agent",
+          isIntegration: false,
+          windowCaption: "zsh — /run/media/om-raut/COUCOU",
+          windowClass: "Alacritty",
+        },
+        {
+          id: "stress-win-claude",
+          name: "Claude",
+          color: "#E07950",
+          state: "idle",
+          stepIndex: 0,
+          steps: [],
+          source: "agent",
+          isIntegration: false,
+          windowCaption: "Claude Desktop",
+          windowClass: "claude",
+        },
+        {
+          id: "stress-win-chatgpt",
+          name: "ChatGPT",
+          color: "#10A37F",
+          state: "idle",
+          stepIndex: 0,
+          steps: [],
+          source: "agent",
+          isIntegration: false,
+          windowCaption: "ChatGPT Desktop",
+          windowClass: "chatgpt",
+        },
+      ];
+      return stressWindows;
+    }
     if (this.desktopWindows.length > 0) {
       const focusedId = this.focusTask?.id;
       const others = this.desktopWindows

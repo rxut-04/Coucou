@@ -113,6 +113,7 @@ export class Island {
   private shownWorkflowNote: WorkflowNotification | null = null;
   /** True while the island is open only because a workflow card opened it. */
   private workflowNoteOpened = false;
+  private lastLayoutStressMode = "off";
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -132,6 +133,28 @@ export class Island {
     State.subscribe(() => {
       this.dirty = true;
       this.ensureRunning();
+
+      if (State.layoutStressMode !== this.lastLayoutStressMode) {
+        this.lastLayoutStressMode = State.layoutStressMode;
+        if (
+          State.layoutStressMode === "on" ||
+          State.layoutStressMode === "recap" ||
+          State.layoutStressMode === "agent" ||
+          State.layoutStressMode === "few"
+        ) {
+          this.fsm.pinned = true;
+          State.isPinned = true;
+          this.fsm.forceHome();
+          this.setView("overview");
+        } else if (State.layoutStressMode === "compact") {
+          this.fsm.pinned = true;
+          State.isPinned = true;
+          this.fsm.forcePetit();
+        } else if (State.layoutStressMode === "off") {
+          this.fsm.pinned = false;
+          State.isPinned = false;
+        }
+      }
       
       // A workflow notification appeared (the engine already gave it a unique
       // id) — or the active one expired. Both are edges on object identity: the

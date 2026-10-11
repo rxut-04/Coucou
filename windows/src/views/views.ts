@@ -375,6 +375,8 @@ export function buildHeader(actions: ViewActions): ViewHost {
     statsPillLabel,
   );
 
+  const stressExtraContainer = h("span", { style: "display:contents" });
+
   const phase3Bar = h(
     "div",
     { class: "phase3-bar" },
@@ -389,9 +391,17 @@ export function buildHeader(actions: ViewActions): ViewHost {
     browserPromptPill,
     browserSessionPill,
     backToEditorBtn,
+    stressExtraContainer,
   );
 
+  let lastStressKey = "";
+
   function syncPhase3Bar() {
+    const isStressMany =
+      State.layoutStressMode === "on" ||
+      State.layoutStressMode === "recap" ||
+      State.layoutStressMode === "agent";
+
     const taskTitle = State.currentTaskRecord?.title || "Deep work session";
     taskLabelEl.textContent = taskTitle;
     taskLabelEl.style.display = editingTask ? "none" : "";
@@ -450,7 +460,13 @@ export function buildHeader(actions: ViewActions): ViewHost {
     const ag = State.activeAgentWait;
     const weekly = State.weeklyAgentWaitStats;
     const weeklySummary = `Weekly agent wait: ${formatDurationCompact(weekly.totalWaitSecs)} (${weekly.totalSessions} runs)`;
-    if (!ag || ag.state === "idle") {
+    if (isStressMany && (!ag || ag.state === "idle")) {
+      agentWaitPill.style.display = "";
+      agentWaitPill.classList.remove("working");
+      agentWaitPill.classList.add("done");
+      agentWaitLabel.textContent = "🤖 Antigravity done, review it ↗";
+      agentWaitPill.title = "Stress-test badge: Antigravity done, review it";
+    } else if (!ag || ag.state === "idle") {
       agentWaitPill.style.display = "none";
     } else if (ag.state === "working") {
       agentWaitPill.style.display = "";
@@ -471,25 +487,51 @@ export function buildHeader(actions: ViewActions): ViewHost {
       State.focusTask?.name === "Browser" ||
       (State.focusTask?.windowClass || "").toLowerCase().includes("brave");
 
-    if (bSession) {
-      browserPromptPill.style.display = "none";
-      browserSessionPill.style.display = "";
-      const icon = bSession.intent === "research" ? "🔍" : "☕";
-      browserSessionTimeSpan.textContent = `${icon} ${formatMmSs(bSession.remainingSecs)}`;
-      browserSessionPill.classList.toggle("break-mode", bSession.intent === "break");
-    } else if (State.browserPromptOpen || isBrowserFocused) {
+    if (isStressMany) {
       browserPromptPill.style.display = "";
-      browserSessionPill.style.display = "none";
+      browserSessionPill.style.display = "";
+      browserSessionTimeSpan.textContent = "🔍 18:42";
+      backToEditorBtn.style.display = "";
+      backToEditorBtn.textContent = "↩ Antigravity";
     } else {
-      browserPromptPill.style.display = "none";
-      browserSessionPill.style.display = "none";
+      if (bSession) {
+        browserPromptPill.style.display = "none";
+        browserSessionPill.style.display = "";
+        const icon = bSession.intent === "research" ? "🔍" : "☕";
+        browserSessionTimeSpan.textContent = `${icon} ${formatMmSs(bSession.remainingSecs)}`;
+        browserSessionPill.classList.toggle("break-mode", bSession.intent === "break");
+      } else if (State.browserPromptOpen || isBrowserFocused) {
+        browserPromptPill.style.display = "";
+        browserSessionPill.style.display = "none";
+      } else {
+        browserPromptPill.style.display = "none";
+        browserSessionPill.style.display = "none";
+      }
+
+      const showBackEditor = State.browserNudgeToEditor || isBrowserFocused;
+      backToEditorBtn.style.display = showBackEditor ? "" : "none";
+      const editorName = State.lastEditorWindow?.name || "Editor";
+      backToEditorBtn.textContent = `↩ ${editorName}`;
+      backToEditorBtn.classList.toggle("nudge", State.browserNudgeToEditor);
     }
 
-    const showBackEditor = State.browserNudgeToEditor || isBrowserFocused;
-    backToEditorBtn.style.display = showBackEditor ? "" : "none";
-    const editorName = State.lastEditorWindow?.name || "Editor";
-    backToEditorBtn.textContent = `↩ ${editorName}`;
-    backToEditorBtn.classList.toggle("nudge", State.browserNudgeToEditor);
+    const stressKey = State.stressExtraBadges.join("|");
+    if (stressKey !== lastStressKey) {
+      lastStressKey = stressKey;
+      stressExtraContainer.replaceChildren(
+        ...State.stressExtraBadges.map((label) =>
+          h(
+            "button",
+            {
+              class: "p3-pill p3-stress-extra",
+              title: label,
+              onclick: (e: Event) => e.stopPropagation(),
+            },
+            h("span", { text: label }),
+          ),
+        ),
+      );
+    }
   }
 
   function go(v: IslandViewName) {

@@ -762,13 +762,102 @@ class WorkflowEngine {
     setInterval(() => this.tick(), 1000);
   }
 
+  private lastStressUpdatedAt = 0;
+
   private tick() {
+    this.tickLayoutStressTest();
     this.detectActiveApp();
     this.tickFocusSession();
     this.tickBrowserSession();
     this.tickAgentMonitor();
     this.tickHealthMode();
     this.checkNotifications();
+  }
+
+  private tickLayoutStressTest() {
+    void Bridge.layoutStressTestStatus().then((st) => {
+      if (!st) return;
+      if (st.updatedAt === this.lastStressUpdatedAt && st.mode === State.layoutStressMode) {
+        return;
+      }
+      this.lastStressUpdatedAt = st.updatedAt;
+      const mode = st.enabled ? st.mode : "off";
+      State.layoutStressMode = mode;
+
+      if (mode === "off") {
+        State.stressExtraBadges = [];
+        State.showingMorningRecap = false;
+        State.workflowNotification = null;
+        void this.syncCurrentTask();
+        void this.initDailyGoalsAndRecap();
+        State.notify();
+        return;
+      }
+
+      if (mode === "on" || mode === "recap" || mode === "agent") {
+        State.stressExtraBadges = [
+          "🐚 cargo test --release · 14.2s ✓",
+          "🐛 Fixed in 11m · rustc E0308",
+          "🌐 docs.rs · Productive",
+          "⚡ Dev Server :1420",
+        ];
+        State.currentTaskRecord = {
+          id: 999,
+          title: "Next focus milestone: Refactor Wayland layer-shell dynamic island geometry & ResizeObserver",
+          status: "active",
+          project: "coucou-desktop-wayland-companion-overhaul",
+          createdAt: Math.floor(Date.now() / 1000),
+          completedAt: null,
+        };
+      } else {
+        State.stressExtraBadges = [];
+      }
+
+      if (mode === "on" || mode === "recap") {
+        State.morningRecap = {
+          day: "2026-10-11",
+          shouldShowToday: true,
+          lastProject: "coucou-desktop-wayland-companion-overhaul",
+          lastFile: "src-tauri/src/platform/linux_wayland_layer_shell_geometry.rs",
+          gitBranch: "feat/phase-d-dynamic-wayland-layer-shell-resize-observer",
+          unfinishedTask: "Implement ResizeObserver + GTK layer-shell dynamic window sizing without clipping",
+          focusMinutesRecent: 247,
+          tasksCompletedRecent: 7,
+          focusSessionsRecent: 6,
+          agentRunsRecent: 14,
+          goalsDone: 2,
+          goalsTotal: 3,
+        };
+        State.showingMorningRecap = true;
+        State.showingDailyGoalsCard = false;
+        State.showingHealthCard = false;
+        State.showingStatsCard = false;
+        State.workflowNotification = null;
+      } else if (mode === "agent") {
+        State.showingMorningRecap = false;
+        State.showingDailyGoalsCard = false;
+        State.showingHealthCard = false;
+        State.showingStatsCard = false;
+        const longMsg =
+          "🤖 Antigravity completed a 14-file architectural refactor across src-tauri/src/island.rs, src-tauri/src/platform/linux.rs, and src/core/layout.ts (branch feat/phase-d-dynamic-wayland-layer-shell-resize-observer) — all 4 SQLite & layout verification checks passed in 18.4s!";
+        const longDetail =
+          "Project: coucou-desktop-wayland-companion-overhaul · File: src-tauri/src/platform/linux_wayland_layer_shell_geometry.rs · Click ↗ to review diff";
+        State.lastWorkflowQuote = longMsg;
+        State.lastWorkflowDetail = longDetail;
+        State.workflowNotification = {
+          message: longMsg,
+          detail: longDetail,
+        };
+      } else if (mode === "few") {
+        State.showingMorningRecap = false;
+        State.showingDailyGoalsCard = false;
+        State.showingHealthCard = false;
+        State.showingStatsCard = false;
+        State.workflowNotification = null;
+      }
+
+      State.notify();
+    });
   }
 
   private detectActiveApp() {
