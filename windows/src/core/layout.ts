@@ -56,10 +56,11 @@ export const PANEL_W = 720;
 export const PANEL_H = 320;
 
 // No notch on a PC: these are the hidden/compact sizes from docs/SPEC.md.
-export const NOTCH_W = 184;
-export const NOTCH_H = 32;
-export const COMPACT_W = 288; // NOTCH_W + 104
-export const EXPANDED_W = 640;
+// CUSTOMIZED: Made island bigger for better visibility
+export const NOTCH_W = 220;
+export const NOTCH_H = 40;
+export const COMPACT_W = 340; // NOTCH_W + 120
+export const EXPANDED_W = 720;
 
 export const ROUNDED_CORNER = 14; // hidden / compact
 export const EXPANDED_CORNER = 22;
@@ -139,27 +140,29 @@ export function botPosition(
   view: IslandViewName,
   islandH: number,
   uploadProgress = 0,
+  headerH = 34,
 ): BotPlacement {
   switch (mode) {
     case "hidden":
       return { cx: 46, cy: 16, diameter: 6, opacity: 0 };
     case "compact":
-      return { cx: 40, cy: 16, diameter: 20, opacity: 1 };
+      return { cx: 40, cy: NOTCH_H / 2, diameter: 20, opacity: 1 };
     case "expanded": {
       const layout = VIEW_LAYOUTS[view];
+      const extraHeader = Math.max(0, headerH - 34);
       if (view === "uploading") {
         return {
           cx: 36 + uploadProgress * 526,
-          cy: layout.botY ?? 103,
+          cy: (layout.botY ?? 103) + extraHeader,
           diameter: layout.botDiameter,
           opacity: 1,
         };
       }
       if (layout.botY != null) {
-        return { cx: layout.botX, cy: layout.botY, diameter: layout.botDiameter, opacity: 1 };
+        return { cx: layout.botX, cy: layout.botY + extraHeader, diameter: layout.botDiameter, opacity: 1 };
       }
-      // Centre of the fixed 84 pt card (8 pt top inset + 34 pt header → content at y = 42)
-      const headerBottom = 42;
+      // Centre of the card below the dynamic header (8 pt top inset + headerH)
+      const headerBottom = 8 + Math.max(34, headerH);
       const cardH = 84;
       const cy = headerBottom + (islandH - headerBottom - cardH) / 2 + cardH / 2;
       return { cx: layout.botX, cy, diameter: layout.botDiameter, opacity: 1 };

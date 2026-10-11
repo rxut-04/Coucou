@@ -204,18 +204,23 @@ body {
 }
 
 #header {
-  height: 34px;
-  flex: 0 0 34px;
+  min-height: 34px;
+  height: auto;
+  flex: 0 0 auto;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  padding: 4px 0 6px;
   margin: 0 -10px;
   transition: opacity 0.2s ease-in-out;
 }
 
 .tabs {
   display: flex;
+  align-items: center;
   gap: 5px;
   padding-left: 14px;
+  height: 22px;
+  flex: 0 0 auto;
 }
 
 .tab {
@@ -243,8 +248,12 @@ body {
 .header-actions {
   margin-left: auto;
   display: flex;
+  align-items: center;
   gap: 14px;
   padding-right: 16px;
+  padding-left: 8px;
+  height: 22px;
+  flex: 0 0 auto;
 }
 
 .header-actions button {
@@ -1567,12 +1576,14 @@ input[type="range"]::-webkit-slider-thumb {
 
 .phase3-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
-  margin-left: 10px;
+  align-content: flex-start;
+  gap: 5px 6px;
+  margin: 0 8px 0 10px;
   min-width: 0;
-  flex: 1 1 auto;
-  overflow: hidden;
+  flex: 1 1 0%;
+  overflow: visible;
 }
 
 .p3-pill {
@@ -1587,11 +1598,15 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--ink-2);
   font: 500 10.5px var(--font);
   white-space: nowrap;
-  min-width: 0;
+  flex: 0 0 auto;
+  flex-shrink: 0;
+  max-width: 340px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .p3-task-pill {
-  max-width: 270px;
+  max-width: 340px;
   overflow: hidden;
 }
 
@@ -1599,7 +1614,7 @@ input[type="range"]::-webkit-slider-thumb {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 170px;
+  max-width: 240px;
   cursor: pointer;
   color: var(--ink);
 }

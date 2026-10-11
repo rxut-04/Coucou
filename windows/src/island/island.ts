@@ -381,6 +381,18 @@ export class Island {
     this.greetingCanvas.style.height = "150px";
 
     this.root.append(this.wakeStrip, this.islandEl);
+    if (typeof ResizeObserver !== "undefined") {
+      const ro = new ResizeObserver(() => {
+        if (State.mode !== "expanded") return;
+        const hh = this.currentHeaderHeight();
+        if (Math.abs(hh - this.lastHeaderHeight) >= 1) {
+          const shrunk = hh < this.lastHeaderHeight;
+          this.lastHeaderHeight = hh;
+          this.animateGeometry(shrunk);
+        }
+      });
+      ro.observe(this.header.el);
+    }
     this.applyGeometry();
   }
 
@@ -696,10 +708,22 @@ export class Island {
 
   // ── Geometry ────────────────────────────────────────────────────────────────
 
+  private lastHeaderHeight = 34;
+
+  private currentHeaderHeight(): number {
+    if (State.mode !== "expanded" || State.view === "greeting") return 34;
+    const measured = this.header?.el?.offsetHeight || 34;
+    return Math.max(34, measured);
+  }
+
   private targetSize(): { w: number; h: number; r: number } {
     let { w, h } = islandSize(State.mode, State.view, State.chatHistory.length);
     if (State.mode === "expanded" && State.view === "question" && State.pendingApproval?.questions) {
       h = QUESTION_PICKER_H;
+    }
+    if (State.mode === "expanded" && State.view !== "greeting") {
+      const extraHeader = Math.max(0, this.currentHeaderHeight() - 34);
+      h += extraHeader;
     }
     const r = State.mode === "expanded" ? EXPANDED_CORNER : ROUNDED_CORNER;
     return { w, h, r };
@@ -1060,7 +1084,13 @@ export class Island {
   };
 
   private updateBotTargets() {
-    const p = botPosition(State.mode, State.view, this.height.value, State.uploadProgress);
+    const p = botPosition(
+      State.mode,
+      State.view,
+      this.height.value,
+      State.uploadProgress,
+      this.currentHeaderHeight(),
+    );
     this.botCx.target = p.cx;
     this.botCy.target = p.cy;
     this.botSize.target = p.diameter / 0.6;
@@ -1197,6 +1227,15 @@ export class Island {
       const on = name === State.view;
       view.el.classList.toggle("on", on);
       if (on) view.sync();
+    }
+
+    if (expanded) {
+      const hh = this.currentHeaderHeight();
+      if (Math.abs(hh - this.lastHeaderHeight) >= 1) {
+        const shrunk = hh < this.lastHeaderHeight;
+        this.lastHeaderHeight = hh;
+        this.animateGeometry(shrunk);
+      }
     }
 
     // The chat is the only view with a text field, so it is the only time the

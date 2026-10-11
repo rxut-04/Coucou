@@ -404,6 +404,8 @@ export function buildHeader(actions: ViewActions): ViewHost {
 
     const taskTitle = State.currentTaskRecord?.title || "Deep work session";
     taskLabelEl.textContent = taskTitle;
+    taskLabelEl.title = `${taskTitle} — Click to rename current task`;
+    taskPillEl.title = `Current task: ${taskTitle}`;
     taskLabelEl.style.display = editingTask ? "none" : "";
     taskInputEl.style.display = editingTask ? "" : "none";
 
