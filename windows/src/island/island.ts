@@ -488,11 +488,26 @@ export class Island {
 
   // ── Mode / view ─────────────────────────────────────────────────────────────
 
+  private syncActiveViewDom() {
+    if (State.mode !== "expanded") return;
+    this.header?.sync();
+    if (this.views) {
+      for (const [name, view] of this.views) {
+        const on = name === State.view;
+        view.el.classList.toggle("on", on);
+        if (on) view.sync();
+      }
+    }
+  }
+
   private setMode(mode: IslandMode) {
     const prev = State.mode;
     if (mode === prev) return;
     State.mode = mode;
-    if (mode === "expanded") Sound.play("open");
+    if (mode === "expanded") {
+      Sound.play("open");
+      this.syncActiveViewDom();
+    }
     if (prev === "expanded") {
       Sound.play("close");
       // A folded card is still waiting: it keeps the island pinned.
@@ -526,8 +541,12 @@ export class Island {
     this.stopSequenceIfLeaving(view);
     if (view !== "overview") closePlanCard();
     State.view = view;
-    if (State.mode !== "expanded") this.setMode("expanded");
-    else this.animateGeometry(false);
+    if (State.mode !== "expanded") {
+      this.setMode("expanded");
+    } else {
+      this.syncActiveViewDom();
+      this.animateGeometry(false);
+    }
     State.lastActivity = performance.now();
     State.notify();
   }
@@ -538,6 +557,7 @@ export class Island {
     if (State.mode !== "expanded") {
       this.fsm.forceHome();
       State.view = view;
+      this.syncActiveViewDom();
       this.animateGeometry(false);
       State.notify();
       return;
@@ -545,6 +565,7 @@ export class Island {
     const grew = VIEW_LAYOUTS[view].height >= VIEW_LAYOUTS[State.view].height;
     State.view = view;
     State.lastActivity = performance.now();
+    this.syncActiveViewDom();
     this.animateGeometry(!grew);
     State.notify();
   }
@@ -765,6 +786,8 @@ export class Island {
   private lastIslandPaddingH = 52;
   private lastExpandDurationMs = 240;
   private lastCollapseDurationMs = 200;
+  private animStartTimeMs: number | null = null;
+  private animWasShrinking = false;
 
   private currentHeaderHeight(): number {
     if (State.mode !== "expanded" || State.view === "greeting") return 34;
@@ -826,6 +849,22 @@ export class Island {
       const screenH = Math.max(640, State.screenSize.height || window.screen.height || 1080);
       const maxW = Math.floor(screenW * cfg.maxWidthPercent);
       const maxH = Math.floor(screenH * cfg.maxHeightPercent);
+
+      // Compute final expanded width first and lock #content to it so header
+      // badge wrapping and left-card text wrapping are measured at the real
+      // expanded width immediately, with zero mid-animation reflows.
+      if (State.view === "overview") {
+        const badges = this.header?.el?.querySelectorAll<HTMLElement>(".phase3-bar > .p3-pill");
+        const badgeCount = badges ? badges.length : 0;
+        const pillCount = State.otherTasks.length;
+        const extraW = badgeCount >= 6 || pillCount >= 6 ? 60 : 0;
+        w = Math.max(w, cfg.minExpandedWidth + extraW);
+      }
+      w = Math.min(maxW, w);
+      if (this.contentEl) {
+        this.contentEl.style.width = `${w}px`;
+      }
+
       const hh = this.currentHeaderHeight();
       const extraHeader = State.view !== "greeting" ? Math.max(0, hh - 34) : 0;
       const islandPadding = hh + 18;
@@ -835,8 +874,7 @@ export class Island {
         h = Math.max(h, QUESTION_PICKER_H);
       }
       if (State.view === "overview") {
-        const { extraW, bodyH } = this.measureOverviewContent(cfg);
-        w = Math.max(w, cfg.minExpandedWidth + extraW);
+        const { bodyH } = this.measureOverviewContent(cfg);
         h = bodyH + islandPadding;
       } else if (State.view === "settings") {
         const settingsStack = this.views?.get("settings")?.el?.querySelector<HTMLElement>(".stack");
@@ -848,8 +886,10 @@ export class Island {
         h += extraHeader;
       }
 
-      w = Math.min(maxW, w);
       h = Math.min(maxH, h);
+      if (this.contentEl) {
+        this.contentEl.style.height = `${h}px`;
+      }
     } else if (State.mode === "compact") {
       this.lastMeasuredContentH = cfg.compactNotchHeight;
       this.lastIslandPaddingH = 0;
@@ -858,7 +898,7 @@ export class Island {
     return { w, h, r };
   }
 
-  private scheduleWindowResize(targetW: number, targetH: number) {
+  private scheduleWindowResize(targetW: number, targetH: number, collapseMs = 200) {
     const desiredW = Math.max(NOTCH_W, Math.ceil(targetW));
     const desiredH = Math.max(32, Math.ceil(targetH));
 
@@ -885,7 +925,7 @@ export class Island {
         this.windowSize = { w: desiredW, h: desiredH };
         void Bridge.setWindowSize(desiredW, desiredH);
         this.pushLayoutMetrics(targetW, targetH, desiredW, desiredH);
-      }, 210);
+      }, collapseMs + 10);
     }
   }
 
@@ -926,17 +966,20 @@ export class Island {
   }
 
   private animateGeometry(shrinking: boolean) {
+    const cfg = getIslandSizeConfig(State.settings.islandSize);
     const { w, h, r } = this.targetSize();
     this.lastTargetSize = { w, h };
-    this.scheduleWindowResize(w, h);
+    this.animStartTimeMs = performance.now();
+    this.animWasShrinking = shrinking;
+    this.scheduleWindowResize(w, h, cfg.collapseMs);
     if (shrinking) {
-      this.width.curveTowards(w);
-      this.height.curveTowards(h);
-      this.radius.curveTowards(r);
+      this.width.curveTowards(w, cfg.collapseMs);
+      this.height.curveTowards(h, cfg.collapseMs);
+      this.radius.curveTowards(r, cfg.collapseMs);
     } else {
-      this.width.springTo(w);
-      this.height.springTo(h);
-      this.radius.springTo(r);
+      this.width.springTo(w, cfg.expandMs);
+      this.height.springTo(h, cfg.expandMs);
+      this.radius.springTo(r, cfg.expandMs);
     }
     this.ensureRunning();
   }
@@ -1225,6 +1268,21 @@ export class Island {
     this.height.step(dt, nowMs);
     this.radius.step(dt, nowMs);
     this.applyGeometry();
+    if (this.animStartTimeMs != null && !this.width.animating && !this.height.animating) {
+      const elapsed = Math.max(1, Math.round(nowMs - this.animStartTimeMs));
+      this.animStartTimeMs = null;
+      if (this.animWasShrinking) {
+        this.lastCollapseDurationMs = elapsed;
+      } else {
+        this.lastExpandDurationMs = elapsed;
+      }
+      this.pushLayoutMetrics(
+        this.lastTargetSize.w,
+        this.lastTargetSize.h,
+        this.windowSize.w,
+        this.windowSize.h,
+      );
+    }
 
     if (this.dirty) {
       this.dirty = false;
