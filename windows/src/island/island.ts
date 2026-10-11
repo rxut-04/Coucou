@@ -25,6 +25,7 @@ import { IslandStateMachine } from "./fsm";
 import { refreshHookPills } from "./integrations";
 import { DesktopLink } from "./desktop";
 import { DRAG_THRESHOLD } from "../mochi/desktop-logic";
+import type { WorkflowNotification } from "../core/workflow";
 
 const BOT_OVERHANG = 40;
 const CLAUDE_DESKTOP_ID = "agent_claude-desktop";
@@ -107,6 +108,11 @@ export class Island {
   /** Drop sequence bookkeeping: last tick played, and whether the ✓ has fired. */
   private uploadTens = 0;
   private uploadDone = false;
+  
+  /** The workflow card currently on screen (object identity, or null). */
+  private shownWorkflowNote: WorkflowNotification | null = null;
+  /** True while the island is open only because a workflow card opened it. */
+  private workflowNoteOpened = false;
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -126,7 +132,54 @@ export class Island {
     State.subscribe(() => {
       this.dirty = true;
       this.ensureRunning();
+      
+      // A workflow notification appeared (the engine already gave it a unique
+      // id) — or the active one expired. Both are edges on object identity: the
+      // engine nulls State.workflowNotification when the card's time is up.
+      const note = State.workflowNotification;
+      if (note !== this.shownWorkflowNote) {
+        this.shownWorkflowNote = note;
+        if (note) this.showWorkflowNotification(note);
+        else this.hideWorkflowNotification();
+      }
     });
+  }
+
+  /**
+   * A motivational quote / focus nudge / finished-task alert. Mochi drops the
+   * island down and displays the quote inside the main left-hand pill card; it
+   * is never allowed to steal the screen from a permission card or greeting.
+   */
+  private showWorkflowNotification(_notification: WorkflowNotification) {
+    // An approval waiting for an answer or the launch greeting always wins.
+    if (State.pendingApproval) return;
+    if (State.mode === "expanded" && State.view === "greeting") return;
+    // Already open on the overview: the overview sync renders it inside leftBody.
+    if (State.mode === "expanded" && (State.view === "overview" || State.view === "empty")) {
+      this.setView("overview");
+      return;
+    }
+    // Closed (hidden OR compact): drop the island down so the quote in the main
+    // left pill can be read, and pin it while the quote is active.
+    if (State.mode === "hidden" || State.mode === "compact") {
+      this.workflowNoteOpened = true;
+      this.fsm.pinned = true;
+      State.isPinned = true;
+      this.fsm.forceHome();
+    }
+  }
+
+  /** The card's time is up. Fold the island away again if we opened it. */
+  private hideWorkflowNotification() {
+    if (!this.workflowNoteOpened) return;
+    this.workflowNoteOpened = false;
+    State.isPinned = false;
+    this.fsm.pinned = false;
+    // Never collapse a card the user opened, or while the mouse is inside.
+    if (State.pendingApproval || this.wasInIsland) return;
+    if (State.mode === "expanded" && (State.view === "overview" || State.view === "empty")) {
+      this.fsm.forcePetit();
+    }
   }
 
   /** The request has its answer: the card goes and the session carries on. */
@@ -174,6 +227,15 @@ export class Island {
       openTarget: () => {
         const task = State.focusTask;
         if (!task) return;
+        if (task.windowPid !== undefined || task.windowClass !== undefined || task.windowCaption !== undefined) {
+          Sound.play("blip");
+          void Bridge.focusTrackerActivateWindow(
+            task.id,
+            task.windowPid ?? 0,
+            task.windowClass ?? task.name,
+          );
+          return;
+        }
         const urls: Record<string, string> = {
           integration_resend: "https://resend.com/emails",
           integration_vercel: "https://vercel.com/dashboard",
@@ -303,6 +365,7 @@ export class Island {
 
   private wireFsm() {
     this.fsm.homeToPetitDelay = State.settings.autoCloseInterval;
+    this.fsm.petitToHiddenDelay = Number.POSITIVE_INFINITY;
     this.fsm.onTransition = (from, to) => {
       // The greeting is over, however it ended: back to his desktop spot.
       if (from === "coucou" && to !== "coucou") this.desktop.launch();
@@ -1022,9 +1085,11 @@ export class Island {
 
     const focus = State.focusTask;
     // While a plan card is open Mochi wears the plan's colour, like its pill.
+    // The main workspace pill and desktop window pills keep bodyColor = null so
+    // Mochi renders with his full 3D gradient, specular highlight, and state tint.
     this.engine.bodyColor = planCardOpen()
       ? hexToRGB(openPlanColor())
-      : focus?.isIntegration
+      : focus?.isIntegration && focus.id !== State.mainPillId
         ? hexToRGB(focus.color)
         : null;
     this.engine.particleOverhang = BOT_OVERHANG;
@@ -1040,11 +1105,11 @@ export class Island {
       }
     }
     // Only the main Mochi is dressed — the one of the main tool's pill (Settings →
-    // Active pills): a focused integration pill shows its own colours, unless
-    // the wardrobe is open (BotCanvasView.showOutfit, macOS).
+    // Active pills) or the active desktop window: a focused service integration
+    // pill shows its own colours, unless the wardrobe is open (BotCanvasView.showOutfit, macOS).
     // In the wardrobe the hovered outfit swaps in at once, without the drop-in.
     const inWardrobe = State.mode === "expanded" && State.view === "wardrobe";
-    const mainFocused = State.focusId == null || State.focusId === State.mainPillId;
+    const mainFocused = State.focusId == null || State.focusId === State.mainPillId || !focus?.isIntegration;
     const showOutfit = mainFocused || State.mode !== "expanded" || inWardrobe;
     const outfit = State.wardrobePreview ?? this.seasons.get(parseOutfit(State.settings.mochiOutfit));
     this.engine.setOutfit(showOutfit ? outfit : "none", !inWardrobe);
@@ -1052,7 +1117,10 @@ export class Island {
     this.engine.update(dt);
     ctx.setTransform(dpr, 0, 0, dpr, BOT_SIDE * dpr, 0);
     ctx.clearRect(-BOT_SIDE, 0, wCss, hCss);
+    ctx.save();
+    this.engine.applyDance(ctx, w, hCss);
     this.engine.draw(ctx, w, hCss);
+    ctx.restore();
   }
 
   /** BotCanvasView.lookX / lookY — tanh of the distance to the bot. */
@@ -1137,7 +1205,12 @@ export class Island {
       }
     }
 
-    syncMiniBotStates(State.tasks);
+    const activeTasks = [
+      ...(State.focusTask ? [State.focusTask] : []),
+      ...State.otherTasks,
+      ...State.tasks,
+    ];
+    syncMiniBotStates(activeTasks);
     this.engine.setState(State.effectiveState);
   }
 

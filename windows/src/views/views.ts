@@ -22,6 +22,7 @@ import { buildRecap } from "./recap";
 import { buildWardrobe } from "./wardrobe";
 import type { Outfit, OutfitSelection } from "../mochi/wardrobe";
 import { language, t, tl, type Msg } from "../i18n/i18n";
+import { Workflow, formatMmSs } from "../core/workflow";
 
 export interface ViewActions {
   setView(v: IslandViewName): void;
@@ -113,6 +114,146 @@ export function buildHeader(actions: ViewActions): ViewHost {
   const planPills = h("div", { class: "plan-pills" }, claudePill.el, codexPill.el);
   let codexShown = false;
 
+  // ── Phase 3: Current Task Pill + Mark Task Done + 25m Focus Session ───────
+  let editingTask = false;
+  const taskLabelEl = h("span", {
+    class: "p3-task-title",
+    title: "Click to edit current task",
+    onclick: (e: Event) => {
+      e.stopPropagation();
+      editingTask = true;
+      void Bridge.focusWindow(true);
+      syncPhase3Bar();
+      taskInputEl.value = State.currentTaskRecord?.title || "Deep work session";
+      taskInputEl.focus();
+      taskInputEl.select();
+    },
+  });
+
+  const taskInputEl = h("input", {
+    class: "p3-task-input",
+    type: "text",
+    placeholder: "Current task...",
+  }) as HTMLInputElement;
+
+  const commitTaskEdit = () => {
+    if (!editingTask) return;
+    editingTask = false;
+    const nextVal = taskInputEl.value.trim();
+    void Bridge.focusWindow(false);
+    if (nextVal) {
+      void Workflow.setCurrentTask(nextVal);
+    } else {
+      syncPhase3Bar();
+    }
+  };
+
+  taskInputEl.addEventListener("keydown", (e: KeyboardEvent) => {
+    e.stopPropagation();
+    if (e.key === "Enter") {
+      e.preventDefault();
+      commitTaskEdit();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      editingTask = false;
+      void Bridge.focusWindow(false);
+      syncPhase3Bar();
+    }
+  });
+  taskInputEl.addEventListener("blur", () => commitTaskEdit());
+
+  const taskDoneBtn = h(
+    "button",
+    {
+      class: "p3-btn p3-done-btn",
+      title: "Mark task done",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        void Workflow.completeCurrentTask();
+      },
+    },
+    h("span", { text: "✓ Done" }),
+  );
+
+  const taskPillEl = h(
+    "div",
+    { class: "p3-pill p3-task-pill" },
+    dot("#A855F7", 6),
+    taskLabelEl,
+    taskInputEl,
+    taskDoneBtn,
+  );
+
+  const focusStartBtn = h(
+    "button",
+    {
+      class: "p3-pill p3-focus-start",
+      title: "Start 25-minute focus session",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        void Workflow.startFocusSession(1500);
+      },
+    },
+    svg(ICONS.timer, 11),
+    h("span", { text: "25m Focus" }),
+  );
+
+  const focusTimeSpan = h("span", { class: "p3-focus-time", text: "25:00" });
+  const focusPauseBtn = h(
+    "button",
+    {
+      class: "p3-btn p3-pause-btn",
+      title: "Pause or resume focus session",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        Workflow.togglePauseFocusSession();
+      },
+    },
+    h("span", { text: "⏸" }),
+  );
+  const focusCancelBtn = h(
+    "button",
+    {
+      class: "p3-btn p3-cancel-btn",
+      title: "Cancel focus session",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        void Workflow.cancelFocusSession();
+      },
+    },
+    h("span", { text: "✕" }),
+  );
+
+  const focusActivePill = h(
+    "div",
+    { class: "p3-pill p3-focus-active" },
+    dot("#22c55e", 6),
+    focusTimeSpan,
+    focusPauseBtn,
+    focusCancelBtn,
+  );
+
+  const phase3Bar = h("div", { class: "phase3-bar" }, taskPillEl, focusStartBtn, focusActivePill);
+
+  function syncPhase3Bar() {
+    const taskTitle = State.currentTaskRecord?.title || "Deep work session";
+    taskLabelEl.textContent = taskTitle;
+    taskLabelEl.style.display = editingTask ? "none" : "";
+    taskInputEl.style.display = editingTask ? "" : "none";
+
+    const session = State.focusSession;
+    if (!session) {
+      focusStartBtn.style.display = "";
+      focusActivePill.style.display = "none";
+    } else {
+      focusStartBtn.style.display = "none";
+      focusActivePill.style.display = "";
+      focusTimeSpan.textContent = `${session.paused ? "⏸ " : ""}${formatMmSs(session.remainingSecs)}`;
+      focusActivePill.classList.toggle("paused", session.paused);
+      focusPauseBtn.textContent = session.paused ? "▶" : "⏸";
+    }
+  }
+
   function go(v: IslandViewName) {
     actions.blip();
     actions.setView(v);
@@ -122,6 +263,7 @@ export function buildHeader(actions: ViewActions): ViewHost {
     "div",
     { id: "header" },
     h("div", { class: "tabs" }, tabHome, tabChat, tabDrop),
+    phase3Bar,
     h("div", { class: "header-actions" }, planPills, gearBtn, soundBtn),
   );
   const headerActions = el.lastElementChild as HTMLElement;
@@ -138,6 +280,7 @@ export function buildHeader(actions: ViewActions): ViewHost {
       gearBtn.append(svg(v === "settings" ? ICONS.gearFill : ICONS.gear, 14));
       clear(soundBtn);
       soundBtn.append(svg(State.settings.soundEnabled ? ICONS.speakerOn : ICONS.speakerOff, 14));
+      syncPhase3Bar();
       syncPlanPills();
       el.style.opacity = v === "confused" ? "0" : "1";
     },
@@ -198,7 +341,7 @@ function buildOverview(actions: ViewActions): ViewHost {
   let pillIds = "";
   let detailOpen = false;
   let lastFocus: string | null = null;
-  let mode: "ticker" | "card" | "plan" | "diff" | null = null;
+  let mode: "ticker" | "card" | "plan" | "diff" | "workflow" | null = null;
   let cardKey = "";
 
   // Leaving the overview or folding the island closes the diff, as on macOS.
@@ -281,6 +424,12 @@ function buildOverview(actions: ViewActions): ViewHost {
       const diff = task && activeDiffId != null ? State.findDiff(task.id, activeDiffId) : null;
       if (!diff) activeDiffId = null;
 
+      const note = State.workflowNotification;
+      if (mode === "workflow" && !note) {
+        mode = null;
+        cardKey = "";
+      }
+
       if (planOpen) {
         if (mode !== "plan") {
           clear(leftBody);
@@ -301,6 +450,14 @@ function buildOverview(actions: ViewActions): ViewHost {
             },
             open: (path) => void Bridge.openFileInVSCode(path),
           }));
+        }
+      } else if (note) {
+        const key = `workflow~${task?.id ?? "none"}~${note.message}~${note.detail ?? ""}`;
+        if (key !== cardKey) {
+          cardKey = key;
+          mode = "workflow";
+          clear(leftBody);
+          leftBody.append(renderWorkflowQuoteCard(task, note.message, note.detail));
         }
       } else if (task && sessionActive) {
         if (mode !== "ticker") {
@@ -325,28 +482,46 @@ function buildOverview(actions: ViewActions): ViewHost {
         }
         ticker.sync(task);
       } else if (task) {
-        const info = State.integrations[task.id];
-        const key = [
-          language(), task.id, detailOpen, task.state, task.steps.join("|"),
-          info?.loaded, info?.error, info?.configured,
-          JSON.stringify(info?.data ?? {}),
-        ].join("~");
-        if (key !== cardKey) {
-          cardKey = key;
-          mode = "card";
-          clear(leftBody);
-          leftBody.append(renderIntegrationCard(task, hooks));
+        const isDesktopWindow = task.windowCaption !== undefined || State.desktopWindows.some((w) => {
+          const id = w.id || `window-${w.pid}`;
+          return id === task.id;
+        });
+        if (isDesktopWindow) {
+          const quoteText = State.lastWorkflowQuote ?? "";
+          const detailText = State.lastWorkflowDetail ?? "";
+          const key = `window~${task.id}~${task.windowActive ?? false}~${task.windowCaption ?? ""}~${quoteText}~${detailText}`;
+          if (key !== cardKey) {
+            cardKey = key;
+            mode = "card";
+            clear(leftBody);
+            leftBody.append(renderDesktopWindowCard(task, quoteText, detailText));
+          }
+        } else {
+          const info = State.integrations[task.id];
+          const quoteText = State.lastWorkflowQuote ?? "";
+          const key = [
+            language(), task.id, detailOpen, task.state, task.steps.join("|"),
+            info?.loaded, info?.error, info?.configured,
+            JSON.stringify(info?.data ?? {}), quoteText,
+          ].join("~");
+          if (key !== cardKey) {
+            cardKey = key;
+            mode = "card";
+            clear(leftBody);
+            leftBody.append(renderIntegrationCard(task, hooks));
+          }
         }
       }
 
-      jump.style.display = detailOpen || mode === "plan" || mode === "diff" ? "none" : "";
+      jump.style.display = detailOpen || mode === "plan" || mode === "diff" || mode === "workflow" ? "none" : "";
 
-      const others = State.otherTasks.slice(0, 4);
-      const pillKey = others.map((t) => `${t.id}:${t.pillBadge ?? ""}`).join("|");
+      const visible = State.otherTasks.slice(0, 4);
+      const pillKey = visible.map((t) => `${t.id}:${t.color}:${t.pillBadge ?? ""}:${t.state}`).join("|");
+      
       if (pillKey !== pillIds) {
         pillIds = pillKey;
         clear(pills);
-        for (const t of others) pills.append(buildPill(t, actions));
+        for (const t of visible) pills.append(buildPill(t, actions));
         pruneMiniBots();
       }
     },
@@ -358,13 +533,70 @@ function buildOverview(actions: ViewActions): ViewHost {
  * any other tagged agent — with something going on.
  */
 export function hasSessionTicker(task: AgentTask): boolean {
+  // Desktop window tasks are rendered via renderDesktopWindowCard, never the empty ticker.
+  if (task.windowCaption !== undefined) return false;
   // A pill made for an agent's session (Gemini CLI, Codex… not declared) only
   // exists while that session does: it keeps the ticker from the first event.
-  if (task.source === "agent" && !task.isIntegration) return true;
+  if (task.source === "agent" && !task.isIntegration) return task.steps.length > 0 || task.state !== "idle";
   const category = pillDefinition(task.id)?.category;
   const isSession = category === "workspace" || category === "agent" ||
     (category == null && task.id.startsWith("agent_"));
   return isSession && (task.state !== "idle" || task.steps.length > 0);
+}
+
+function renderWorkflowQuoteCard(task: AgentTask | null, message: string, detail?: string): HTMLElement {
+  const color = task?.color ?? "#3b82f6";
+  const label = task ? (task.id === "integration_claude" ? "VS Code" : task.name) : "Coucou";
+  return h(
+    "div",
+    { class: "int-card wf-card" },
+    h(
+      "div",
+      { class: "int-head" },
+      dot(color, 7),
+      h("b", { text: label }),
+      h("span", { text: "Focus" }),
+    ),
+    h("div", { class: "wf-note-msg", text: message }),
+    detail ? h("div", { class: "wf-note-detail", text: detail }) : null,
+  );
+}
+
+function renderDesktopWindowCard(task: AgentTask, quoteText: string, detailText = ""): HTMLElement {
+  const isActive = task.windowActive ?? (task.state !== "idle");
+  const statusColor = isActive ? "#22C55E" : "#6B7079";
+  const statusLabel = detailText || task.windowCaption || task.name;
+
+  return h(
+    "div",
+    { class: "int-card wf-card" },
+    h(
+      "div",
+      {
+        class: "int-head wf-win-head",
+        title: "Click to jump to window",
+        onclick: () => {
+          void Bridge.focusTrackerActivateWindow(
+            task.id,
+            task.windowPid ?? 0,
+            task.windowClass ?? task.name,
+          );
+        },
+      },
+      dot(task.color, 7),
+      h("b", { text: task.name }),
+      h("span", { text: isActive ? "Active" : "Idle" }),
+    ),
+    quoteText
+      ? h("div", { class: "wf-note-msg", text: quoteText })
+      : null,
+    h(
+      "div",
+      { class: "int-status" },
+      dot(statusColor, 5),
+      h("span", { class: "wf-win-caption", text: statusLabel }),
+    ),
+  );
 }
 
 function buildPill(task: AgentTask, actions: ViewActions): HTMLElement {
@@ -377,6 +609,7 @@ function buildPill(task: AgentTask, actions: ViewActions): HTMLElement {
     h("span", { class: "lbl", text: label }),
   );
   pill.style.borderColor = `${task.color}24`;
+  
   pill.addEventListener("mouseenter", () => {
     pill.style.background = `${task.color}2e`;
     pill.style.borderColor = `${task.color}8c`;

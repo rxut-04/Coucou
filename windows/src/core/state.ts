@@ -11,9 +11,30 @@ import type { ProviderId } from "./providers";
 import type { FileDiff } from "./diff";
 import type { Bindings } from "./shortcuts";
 import { DEFAULT_OUTFIT, type Outfit } from "../mochi/wardrobe";
+import { getQuoteForWindow } from "./quotes";
+import { Bridge, type TaskRecord } from "./bridge";
 
 export type AgentSource = "claudeCode" | "n8n" | "agent";
 export type PillBadge = "approval" | "finished" | "error";
+
+export interface DesktopWindow {
+  id: string;
+  resourceClass: string;
+  caption: string;
+  pid: number;
+  active: boolean;
+  minimized: boolean;
+}
+
+export interface ActiveFocusSession {
+  id: number;
+  remainingSecs: number;
+  targetSecs: number;
+  elapsedSecs: number;
+  paused: boolean;
+  taskTitle: string;
+  appClass: string;
+}
 
 export interface AgentTask {
   id: string;
@@ -37,6 +58,16 @@ export interface AgentTask {
   sessionId?: string | null;
   /** Claude's final message after Stop, one line; cleared when a new turn starts. */
   finalLine?: string | null;
+  /** Desktop window is minimized (for visual indication). */
+  minimized?: boolean;
+  /** Clean caption/title for a desktop window pill. */
+  windowCaption?: string;
+  /** Whether the desktop window is currently active/focused. */
+  windowActive?: boolean;
+  /** Desktop window PID for KWin focus activation. */
+  windowPid?: number;
+  /** Desktop window resourceClass for KWin focus activation. */
+  windowClass?: string;
 }
 
 export interface ApprovalInfo {
@@ -169,6 +200,221 @@ export const DEFAULT_SETTINGS: Settings = {
   language: "",
 };
 
+function windowId(window: DesktopWindow): string {
+  return window.id || `window-${window.pid}`;
+}
+
+function isRelevantDesktopWindow(window: DesktopWindow): boolean {
+  if (!window) return false;
+  if (window.minimized && !window.active) return false;
+  const cls = (window.resourceClass || "").trim().toLowerCase();
+  const cap = (window.caption || "").trim().toLowerCase();
+  if (!cls && !cap) return false;
+  if (window.pid <= 0 && !cls) return false;
+  // Filter out Coucou itself and KDE/Wayland shell/background windows so clicking
+  // the island or the desktop never creates an inappropriate/dull pill.
+  const ignoredClasses = [
+    "coucou",
+    "plasmashell",
+    "org.kde.plasmashell",
+    "kwin",
+    "kwin_wayland",
+    "krunner",
+    "org.kde.krunner",
+    "xdg-desktop-portal",
+    "polkit",
+    "org.kde.polkit",
+    "xwaylandvideobridge",
+    "gmenudbusmenuproxy",
+    "kded",
+    "ksmserver",
+  ];
+  if (ignoredClasses.some((ig) => cls === ig || cls.includes(ig))) return false;
+  if (cap === "coucou" || cap === "desktop" || cap.startsWith("plasma")) return false;
+  return true;
+}
+
+function windowLabel(resourceClass: string, caption = "", fallback = "Window"): string {
+  const cls = (resourceClass || "").trim().toLowerCase();
+  const cap = (caption || "").trim();
+  const capLower = cap.toLowerCase();
+  const text = `${cls} ${capLower}`;
+
+  // 1. Check specific IDE / AI / Terminal classes first so window captions never mislabel them
+  if (cls.includes("antigravity")) return "Antigravity";
+  if (cls.includes("kiro")) return "Kiro";
+  if (cls.includes("chatgpt") || cls.includes("openai")) return "ChatGPT";
+  if (cls.includes("claude")) return "Claude";
+  if (cls.includes("konsole")) return "Konsole";
+  if (
+    cls.includes("gnome-terminal") ||
+    cls.includes("ptyxis") ||
+    cls.includes("kgx") ||
+    cls.includes("kitty") ||
+    cls.includes("alacritty") ||
+    cls.includes("wezterm") ||
+    cls.includes("foot") ||
+    cls.includes("tilix") ||
+    cls.includes("terminator") ||
+    cls.includes("xterm") ||
+    cls.includes("yakuake") ||
+    cls.includes("guake") ||
+    cls.includes("warp") ||
+    cls.includes("ghostty") ||
+    cls.includes("terminal") ||
+    cls.includes("bash") ||
+    cls.includes("zsh") ||
+    cls.includes("fish")
+  ) {
+    return "Terminal";
+  }
+  if (cls.includes("cursor")) return "Cursor";
+  if (cls.includes("code") || cls.includes("vscode")) return "VS Code";
+
+  // 2. Check combined class + caption for web apps, PWAs, or title-based detection
+  if (text.includes("antigravity")) return "Antigravity";
+  if (text.includes("kiro")) return "Kiro";
+  if (text.includes("chatgpt") || text.includes("openai")) return "ChatGPT";
+  if (text.includes("claude")) return "Claude";
+  if (text.includes("konsole")) return "Konsole";
+  if (
+    text.includes("terminal") ||
+    text.includes("gnome-terminal") ||
+    text.includes("ptyxis") ||
+    text.includes("kitty") ||
+    text.includes("alacritty") ||
+    text.includes("wezterm") ||
+    text.includes("bash") ||
+    text.includes("zsh")
+  ) {
+    return "Terminal";
+  }
+  if (text.includes("cursor")) return "Cursor";
+  if (text.includes("code") || text.includes("vscode")) return "VS Code";
+  if (
+    text.includes("brave") ||
+    text.includes("chrome") ||
+    text.includes("chromium") ||
+    text.includes("firefox") ||
+    text.includes("edge") ||
+    text.includes("vivaldi") ||
+    text.includes("opera") ||
+    text.includes("zen") ||
+    text.includes("browser")
+  ) {
+    return "Browser";
+  }
+  if (text.includes("dolphin")) return "Files";
+
+  const raw = cap || (resourceClass || "").trim();
+  if (!raw) return fallback;
+  const short = raw.split(/\s+[—–-]\s+/)[0].trim() || raw;
+  return short.length > 18 ? `${short.slice(0, 16).trimEnd()}…` : short;
+}
+
+function windowColor(resourceClass: string, caption = ""): string {
+  const cls = (resourceClass || "").trim().toLowerCase();
+  const text = `${cls} ${(caption || "").toLowerCase()}`;
+
+  if (cls.includes("antigravity") || text.includes("antigravity")) return "#E879F9";
+  if (cls.includes("kiro") || text.includes("kiro")) return "#A855F7";
+  if (cls.includes("chatgpt") || cls.includes("openai") || text.includes("chatgpt")) return "#10A37F";
+  if (cls.includes("claude") || text.includes("claude")) return "#E07950";
+  if (cls.includes("konsole") || text.includes("konsole")) return "#f59e0b";
+  if (
+    cls.includes("terminal") ||
+    cls.includes("gnome-terminal") ||
+    cls.includes("ptyxis") ||
+    cls.includes("kgx") ||
+    cls.includes("kitty") ||
+    cls.includes("alacritty") ||
+    cls.includes("wezterm") ||
+    cls.includes("foot") ||
+    cls.includes("tilix") ||
+    cls.includes("terminator") ||
+    cls.includes("xterm") ||
+    cls.includes("bash") ||
+    cls.includes("zsh") ||
+    text.includes("terminal")
+  ) {
+    return "#10b981";
+  }
+  if (cls.includes("cursor") || text.includes("cursor")) return "#C0C4CC";
+  if (cls.includes("code") || cls.includes("vscode") || text.includes("vscode")) return "#3b82f6";
+  if (
+    text.includes("brave") ||
+    text.includes("chrome") ||
+    text.includes("chromium") ||
+    text.includes("firefox") ||
+    text.includes("edge") ||
+    text.includes("browser")
+  ) {
+    return "#22c55e";
+  }
+  return "#8AB4F8";
+}
+
+function buildWindowTask(window: DesktopWindow): AgentTask {
+  const id = windowId(window);
+  const name = windowLabel(window.resourceClass, window.caption, "Window");
+  const cleanCaption = (window.caption || "").trim() || name;
+  return {
+    id,
+    name,
+    color: windowColor(window.resourceClass, window.caption),
+    state: window.active ? "working" : "idle",
+    stepIndex: 0,
+    steps: [],
+    source: "agent",
+    isIntegration: false,
+    minimized: window.minimized,
+    windowCaption: cleanCaption,
+    windowActive: window.active,
+    windowPid: window.pid,
+    windowClass: window.resourceClass,
+  };
+}
+
+function windowPriority(value: string): number {
+  const text = (value || "").toLowerCase();
+  if (
+    text.includes("antigravity") ||
+    text.includes("kiro") ||
+    text.includes("code") ||
+    text.includes("cursor") ||
+    text.includes("vscode")
+  ) {
+    return 0;
+  }
+  if (text.includes("claude") || text.includes("chatgpt") || text.includes("openai")) {
+    return 1;
+  }
+  if (
+    text.includes("konsole") ||
+    text.includes("terminal") ||
+    text.includes("gnome-terminal") ||
+    text.includes("ptyxis") ||
+    text.includes("kitty") ||
+    text.includes("alacritty") ||
+    text.includes("wezterm") ||
+    text.includes("bash") ||
+    text.includes("zsh")
+  ) {
+    return 2;
+  }
+  if (
+    text.includes("brave") ||
+    text.includes("chrome") ||
+    text.includes("chromium") ||
+    text.includes("firefox") ||
+    text.includes("edge") ||
+    text.includes("browser")
+  ) {
+    return 3;
+  }
+  return 4;
+}
+
 type Listener = () => void;
 
 /** Live diffs kept per pill (oldest dropped first) — same cap as macOS. */
@@ -182,6 +428,8 @@ class AppState {
 
   tasks: AgentTask[] = [];
   focusId: string | null = null;
+  desktopWindows: DesktopWindow[] = [];
+  private lastActiveWindowId: string | null = null;
 
   stateOverride: BotStateName | null = null;
 
@@ -221,6 +469,16 @@ class AppState {
   private sessionDiffTimers = new Map<string, number>();
   /** Never reset, so an id can never point at a newer diff than the one tapped. */
   private nextDiffId = 0;
+  /** Workflow notification to display in the island. */
+  workflowNotification: import("./workflow").WorkflowNotification | null = null;
+  /** Latest motivational quote so the main left pill always displays it. */
+  lastWorkflowQuote: string | null = null;
+  /** Latest workflow timer/detail string (never overwrites the motivational quote). */
+  lastWorkflowDetail: string | null = null;
+  /** Current active task stored in SQLite (Phase 3). */
+  currentTaskRecord: TaskRecord | null = null;
+  /** Active 25-minute focus session countdown state (Phase 3). */
+  focusSession: ActiveFocusSession | null = null;
   /**
    * Mochi is out of the island — on the desktop, flying, or being dragged
    * there — so the island's own Mochi is hidden (AppState.mochiOnDesktop).
@@ -250,6 +508,13 @@ class AppState {
   }
 
   get focusTask(): AgentTask | null {
+    if (this.desktopWindows.length > 0) {
+      const byFocus = this.focusId
+        ? this.desktopWindows.find((w) => windowId(w) === this.focusId)
+        : undefined;
+      const focused = byFocus ?? this.desktopWindows.find((w) => w.active) ?? this.desktopWindows[0];
+      return buildWindowTask(focused);
+    }
     return this.tasks.find((t) => t.id === this.focusId) ?? this.tasks[0] ?? null;
   }
 
@@ -258,16 +523,91 @@ class AppState {
   }
 
   get otherTasks(): AgentTask[] {
+    if (this.desktopWindows.length > 0) {
+      const focusedId = this.focusTask?.id;
+      const others = this.desktopWindows
+        .filter((w) => windowId(w) !== focusedId)
+        .slice()
+        .sort((a, b) => {
+          const p = windowPriority(`${a.resourceClass} ${a.caption}`) - windowPriority(`${b.resourceClass} ${b.caption}`);
+          if (p !== 0) return p;
+          return (a.caption || a.resourceClass).localeCompare(b.caption || b.resourceClass);
+        })
+        .map(buildWindowTask);
+      return others;
+    }
     return this.tasks.filter((t) => t.id !== this.focusId);
+  }
+
+  applyDesktopWindows(windows: DesktopWindow[]) {
+    const filtered = windows.filter(isRelevantDesktopWindow);
+    const seen = new Set<string>();
+    const deduped: DesktopWindow[] = [];
+    for (const w of filtered) {
+      const id = windowId(w);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      deduped.push({ ...w });
+    }
+
+    const prevActiveId = this.lastActiveWindowId;
+    const explicitActive = deduped.find((w) => w.active);
+    if (explicitActive) {
+      const nextActiveId = windowId(explicitActive);
+      this.lastActiveWindowId = nextActiveId;
+      if (nextActiveId !== prevActiveId) {
+        this.lastWorkflowQuote = getQuoteForWindow(explicitActive.resourceClass, explicitActive.caption);
+      }
+    } else if (this.lastActiveWindowId) {
+      // When the user clicks Coucou or the desktop, KWin marks Coucou/plasmashell
+      // active; preserve the active state on the last active user window.
+      const prev = deduped.find((w) => windowId(w) === this.lastActiveWindowId);
+      if (prev) prev.active = true;
+    }
+
+    const next = deduped.sort((a, b) => {
+      if (a.active !== b.active) return Number(b.active) - Number(a.active);
+      const p = windowPriority(`${a.resourceClass} ${a.caption}`) - windowPriority(`${b.resourceClass} ${b.caption}`);
+      if (p !== 0) return p;
+      return (a.caption || a.resourceClass).localeCompare(b.caption || b.resourceClass);
+    });
+
+    this.desktopWindows = next;
+    if (this.desktopWindows.length > 0) {
+      const active = this.desktopWindows.find((w) => w.active);
+      if (active) {
+        this.focusId = windowId(active);
+      } else if (!this.focusId || !this.desktopWindows.some((w) => windowId(w) === this.focusId)) {
+        this.focusId = windowId(this.desktopWindows[0]);
+      }
+    } else if (!this.focusId || !this.tasks.some((t) => t.id === this.focusId)) {
+      this.focusId = this.mainPillId;
+    }
+    this.notify();
   }
 
   setFocus(id: string) {
     const t = this.tasks.find((x) => x.id === id);
-    if (!t) return;
-    this.focusId = id;
-    this.showingPlanDetail = false;
-    t.pillBadge = null;
-    this.notify();
+    if (t) {
+      this.focusId = id;
+      this.showingPlanDetail = false;
+      t.pillBadge = null;
+      this.lastWorkflowQuote = getQuoteForWindow(t.name, t.windowCaption ?? "");
+      this.notify();
+      return;
+    }
+    const win = this.desktopWindows.find((w) => windowId(w) === id);
+    if (win) {
+      for (const w of this.desktopWindows) {
+        w.active = windowId(w) === id;
+      }
+      win.minimized = false;
+      this.focusId = id;
+      this.lastActiveWindowId = id;
+      this.lastWorkflowQuote = getQuoteForWindow(win.resourceClass, win.caption);
+      this.notify();
+      void Bridge.focusTrackerActivateWindow(win.id, win.pid, win.resourceClass);
+    }
   }
 
   /**

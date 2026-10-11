@@ -1516,6 +1516,199 @@ input[type="range"]::-webkit-slider-thumb {
   height: 100%;
 }
 
+/* ── Workflow card inside the main left pill (.overview > .left) ──────────── */
+
+.int-card.wf-card {
+  padding: 9px 12px 6px 108px;
+  height: 100%;
+  gap: 3px;
+  animation: wf-note-in 0.2s ease-out;
+}
+
+@keyframes wf-note-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.wf-note-msg {
+  font: 500 11px/1.32 var(--font);
+  color: var(--ink);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  padding-top: 1px;
+}
+
+.wf-note-detail,
+.wf-win-caption {
+  font: 400 10.5px var(--font);
+  color: var(--dim-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.int-card.wf-card .int-status {
+  padding-top: 1px;
+  min-width: 0;
+}
+
+.wf-win-head {
+  cursor: pointer;
+}
+
+.wf-win-head:hover b {
+  text-decoration: underline;
+}
+
+/* ── Phase 3: Current Task Pill & 25-Minute Focus Session Bar ─────────────── */
+
+.phase3-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 10px;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.p3-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  color: var(--ink-2);
+  font: 500 10.5px var(--font);
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.p3-task-pill {
+  max-width: 270px;
+  overflow: hidden;
+}
+
+.p3-task-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 170px;
+  cursor: pointer;
+  color: var(--ink);
+}
+
+.p3-task-title:hover {
+  color: #e9d5ff;
+}
+
+.p3-task-input {
+  width: 145px;
+  height: 16px;
+  border: 1px solid rgba(168, 85, 247, 0.55);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.45);
+  color: var(--ink);
+  font: 500 10.5px var(--font);
+  padding: 0 5px;
+  outline: none;
+}
+
+.p3-btn {
+  border: 0;
+  border-radius: 8px;
+  padding: 1px 6px;
+  height: 16px;
+  font: 600 9.5px var(--font);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s ease, transform 0.08s ease;
+}
+
+.p3-btn:active {
+  transform: scale(0.94);
+}
+
+.p3-done-btn {
+  background: rgba(34, 197, 94, 0.18);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.35);
+}
+
+.p3-done-btn:hover {
+  background: rgba(34, 197, 94, 0.32);
+  color: #86efac;
+}
+
+.p3-focus-start {
+  cursor: pointer;
+  color: #93c5fd;
+  background: rgba(59, 130, 246, 0.14);
+  border-color: rgba(59, 130, 246, 0.32);
+  transition: background 0.12s ease;
+}
+
+.p3-focus-start:hover {
+  background: rgba(59, 130, 246, 0.26);
+  color: #bfdbfe;
+}
+
+.p3-focus-active {
+  background: rgba(34, 197, 94, 0.13);
+  border-color: rgba(34, 197, 94, 0.35);
+  color: #86efac;
+}
+
+.p3-focus-active.paused {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.38);
+  color: #fcd34d;
+}
+
+.p3-focus-time {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.p3-pause-btn {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--ink);
+  padding: 0 5px;
+}
+
+.p3-pause-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.p3-cancel-btn {
+  background: rgba(239, 68, 68, 0.18);
+  color: #fca5a5;
+  padding: 0 5px;
+}
+
+.p3-cancel-btn:hover {
+  background: rgba(239, 68, 68, 0.32);
+}
+
+/* Power features: a notification makes the island's edge glow for a second
+   (src/core/power.ts → PowerEngine.flashIsland). */
+#island.flash-border {
+  animation: flash-border 1s ease-out;
+}
+
+@keyframes flash-border {
+  0% { box-shadow: 0 0 0 2px rgba(245, 165, 36, 0.9); }
+  100% { box-shadow: 0 0 0 2px rgba(245, 165, 36, 0); }
+}
+
 .int-card {
   padding: 10px 12px 0 108px;
   display: flex;

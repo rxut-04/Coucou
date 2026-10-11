@@ -28,6 +28,16 @@ mod shortcuts;
 mod tray;
 #[cfg(windows)]
 mod webview_drop;
+mod workflow;
+mod focus_tracker;
+
+use focus_tracker::FocusTrackerState;
+mod classify;
+mod db;
+mod engine;
+
+use focus_tracker::{focus_tracker_is_coding, focus_tracker_window_info};
+
 
 use std::process::Command;
 use std::sync::atomic::Ordering;
@@ -615,6 +625,9 @@ fn open_settings_window(app: AppHandle) {
 }
 
 pub fn run() {
+    if db::handle_cli_args() {
+        return;
+    }
     platform::prepare_environment();
     let loaded = settings::load();
     i18n::set_picked(&loaded.language);
@@ -642,6 +655,8 @@ pub fn run() {
             settings: Mutex::new(loaded.clone()),
             gate: gate.clone(),
         })
+        .manage(Arc::new(focus_tracker::FocusTrackerState::default()))
+        .manage(db::DbState::new(db::default_db_path()))
         .manage(Pending::default())
         .manage(Chat::default())
         .manage(shortcuts::Registry::default())
@@ -710,6 +725,24 @@ pub fn run() {
             desktop::desktop_mochi_fly_out,
             desktop::desktop_mochi_fly_home,
             desktop::desktop_mochi_set_asleep,
+            workflow::workflow_active_window,
+            workflow::workflow_terminal_finished,
+            workflow::workflow_terminal_processes,
+            workflow::workflow_update_active_window,
+            focus_tracker::focus_tracker_windows,
+            focus_tracker::focus_tracker_activate_window,
+            focus_tracker_is_coding,
+            focus_tracker_window_info,
+            focus_tracker_status,
+            focus_tracker_start,
+            focus_tracker_stop,
+            db::task_current,
+            db::task_set,
+            db::task_complete,
+            db::task_list,
+            db::focus_session_start,
+            db::focus_session_finish,
+            db::focus_session_list,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -718,6 +751,12 @@ pub fn run() {
             create_settings_window(&handle);
             // Same rule for Mochi's desktop window.
             desktop::setup(&handle);
+
+            // Register the focus tracker DBus service (Linux only)
+            #[cfg(target_os = "linux")]
+            {
+                focus_tracker::start(handle.clone());
+            }
 
             if let Some(win) = island::window(&handle) {
                 // Where Tauri takes the drop itself (Linux), its paths are the
@@ -774,4 +813,33 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+}
+
+// ── Workflow tracking ─────────────────────────────────────────────────────────
+// Commands are defined in workflow.rs as standalone functions.
+
+// ── Focus Tracker ─────────────────────────────────────────────────────────────
+// focus_tracker::start(app.handle().clone()) is called in setup().
+// Classification is in classify.rs.
+
+#[tauri::command]
+fn focus_tracker_status(state: tauri::State<'_, Arc<FocusTrackerState>>) -> serde_json::Value {
+    let running = state.running.load(Ordering::Relaxed);
+    let last_title = state.last_window_title.lock().unwrap().clone();
+    let last_change = state.last_change.lock().unwrap().map(|t| t.elapsed().as_secs());
+    serde_json::json!({
+        "running": running,
+        "last_window_title": last_title,
+        "last_change_seconds_ago": last_change,
+    })
+}
+
+#[tauri::command]
+fn focus_tracker_start(state: tauri::State<'_, Arc<FocusTrackerState>>) {
+    state.running.store(true, Ordering::Relaxed);
+}
+
+#[tauri::command]
+fn focus_tracker_stop(state: tauri::State<'_, Arc<FocusTrackerState>>) {
+    state.running.store(false, Ordering::Relaxed);
 }

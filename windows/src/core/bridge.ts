@@ -182,6 +182,28 @@ export const Bridge = {
   /** Opens the folder of the image saved last. */
   recapRevealSaved: () => call<void>("recap_reveal_saved"),
 
+  // ── Focus Tracker (src-tauri/src/focus_tracker.rs) ─────────────────────
+  focusTrackerIsCoding: () => call<boolean>("focus_tracker_is_coding"),
+  /** The focused window: `name` is its resourceClass (what workflow.ts classifies on). */
+  focusTrackerWindowInfo: () => call<{ pid: number; name: string; title: string; isCoding: boolean; isRunning: boolean } | null>("focus_tracker_window_info"),
+  focusTrackerWindows: () => call<DesktopWindow[]>("focus_tracker_windows"),
+  focusTrackerActivateWindow: (id: string, pid: number, resourceClass: string) =>
+    call<boolean>("focus_tracker_activate_window", { id, pid, resourceClass }),
+
+  // ── SQLite Tasks & 25-Minute Focus Sessions (src-tauri/src/db.rs) ────────
+  taskCurrent: () => call<TaskRecord | null>("task_current"),
+  taskSet: (title: string, project = "Coucou") =>
+    call<TaskRecord | null>("task_set", { title, project }),
+  taskComplete: (id?: number) =>
+    call<TaskRecord | null>("task_complete", id !== undefined ? { id } : {}),
+  taskList: (limit = 20) => call<TaskRecord[]>("task_list", { limit }),
+  focusSessionStart: (targetSecs = 1500, taskTitle = "", appClass = "") =>
+    call<FocusSessionRecord | null>("focus_session_start", { targetSecs, taskTitle, appClass }),
+  focusSessionFinish: (id: number, durationSecs: number, status: "completed" | "cancelled") =>
+    call<FocusSessionRecord | null>("focus_session_finish", { id, durationSecs, status }),
+  focusSessionList: (limit = 20) =>
+    call<FocusSessionRecord[]>("focus_session_list", { limit }),
+
   // ── Mochi on the desktop (src-tauri/src/desktop.rs) ───────────────────────
   desktopInfo: () => call<DesktopInfo>("desktop_mochi_info"),
   /** Dragged out of the island: (x, y) is the pointer in island-window coordinates. */
@@ -201,6 +223,26 @@ export const Bridge = {
   /** Asleep, the cursor poll stops. */
   desktopSetAsleep: (asleep: boolean) => call<void>("desktop_mochi_set_asleep", { asleep }),
 };
+
+export interface TaskRecord {
+  id: number;
+  title: string;
+  project: string;
+  status: string;
+  createdAt: number;
+  completedAt: number | null;
+}
+
+export interface FocusSessionRecord {
+  id: number;
+  startedAt: number;
+  endedAt: number | null;
+  durationSecs: number;
+  targetSecs: number;
+  status: string;
+  taskTitle: string;
+  appClass: string;
+}
 
 export type ShortcutStatus =
   | "active" | "off" | "inUse" | "duplicate" | "invalid"
@@ -231,6 +273,15 @@ export async function emitToWindow(label: string, event: string, payload?: unkno
   } catch (err) {
     console.error(`[coucou] emit ${event} failed`, err);
   }
+}
+
+export interface DesktopWindow {
+  id: string;
+  resourceClass: string;
+  caption: string;
+  pid: number;
+  active: boolean;
+  minimized: boolean;
 }
 
 export interface IntegrationUpdate {
