@@ -93,6 +93,17 @@ pub struct FocusSessionRecord {
     pub app_class: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserSessionRecord {
+    pub id: i64,
+    pub domain: String,
+    pub category: String,
+    pub intent: String,
+    pub started_at: i64,
+    pub duration_secs: i64,
+}
+
 pub struct DbState {
     path: PathBuf,
     lock: Mutex<()>,
@@ -316,6 +327,14 @@ impl DbState {
                  status TEXT NOT NULL,
                  task_title TEXT NOT NULL DEFAULT '',
                  app_class TEXT NOT NULL DEFAULT ''
+             );
+             CREATE TABLE IF NOT EXISTS browser_sessions (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 domain TEXT NOT NULL,
+                 category TEXT NOT NULL DEFAULT 'neutral',
+                 intent TEXT NOT NULL DEFAULT 'browse',
+                 started_at INTEGER NOT NULL,
+                 duration_secs INTEGER NOT NULL DEFAULT 0
              );
              CREATE TABLE IF NOT EXISTS event_log (
                  id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -642,6 +661,91 @@ impl DbState {
         }
         out
     }
+
+    pub fn record_browser_session(
+        &self,
+        domain: &str,
+        category: &str,
+        intent: &str,
+        duration_secs: i64,
+    ) -> Option<BrowserSessionRecord> {
+        let now = unix_now();
+        let clean_domain = domain.trim();
+        if clean_domain.is_empty() {
+            return None;
+        }
+        let clean_cat = category.trim();
+        let clean_intent = intent.trim();
+        let row_id = {
+            let _guard = self.lock.lock().ok()?;
+            let conn = Connection::open(&self.path).ok()?;
+            let stmt = Statement::prepare(
+                &conn,
+                "INSERT INTO browser_sessions (domain, category, intent, started_at, duration_secs)
+                 VALUES (?1, ?2, ?3, ?4, ?5);",
+            )
+            .ok()?;
+            stmt.bind_text(1, clean_domain).ok()?;
+            stmt.bind_text(2, clean_cat).ok()?;
+            stmt.bind_text(3, clean_intent).ok()?;
+            stmt.bind_i64(4, now).ok()?;
+            stmt.bind_i64(5, duration_secs.max(0)).ok()?;
+            stmt.step().ok()?;
+            conn.last_insert_rowid()
+        };
+
+        self.log_event(
+            "browser_session_recorded",
+            &serde_json::json!({
+                "id": row_id,
+                "domain": clean_domain,
+                "category": clean_cat,
+                "intent": clean_intent,
+                "durationSecs": duration_secs.max(0),
+            })
+            .to_string(),
+        );
+
+        Some(BrowserSessionRecord {
+            id: row_id,
+            domain: clean_domain.to_string(),
+            category: clean_cat.to_string(),
+            intent: clean_intent.to_string(),
+            started_at: now,
+            duration_secs: duration_secs.max(0),
+        })
+    }
+
+    pub fn list_browser_sessions(&self, limit: i64) -> Vec<BrowserSessionRecord> {
+        let Ok(_guard) = self.lock.lock() else {
+            return Vec::new();
+        };
+        let Ok(conn) = Connection::open(&self.path) else {
+            return Vec::new();
+        };
+        let Ok(stmt) = Statement::prepare(
+            &conn,
+            "SELECT id, domain, category, intent, started_at, duration_secs
+             FROM browser_sessions
+             ORDER BY id DESC
+             LIMIT ?1;",
+        ) else {
+            return Vec::new();
+        };
+        let _ = stmt.bind_i64(1, limit.max(1));
+        let mut out = Vec::new();
+        while stmt.step().unwrap_or(false) {
+            out.push(BrowserSessionRecord {
+                id: stmt.col_i64(0),
+                domain: stmt.col_text(1),
+                category: stmt.col_text(2),
+                intent: stmt.col_text(3),
+                started_at: stmt.col_i64(4),
+                duration_secs: stmt.col_i64(5),
+            });
+        }
+        out
+    }
 }
 
 #[tauri::command]
@@ -741,6 +845,7 @@ pub fn handle_cli_args() -> bool {
                 "currentTask": db.current_task(),
                 "tasks": db.list_tasks(10),
                 "focusSessions": db.list_focus_sessions(10),
+                "browserSessions": db.list_browser_sessions(10),
             });
             println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
         }

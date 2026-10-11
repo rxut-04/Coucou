@@ -1698,6 +1698,104 @@ input[type="range"]::-webkit-slider-thumb {
   background: rgba(239, 68, 68, 0.32);
 }
 
+/* ── Phase 4: Browser Intent ("Research or break?", timer, domain badge) ──── */
+
+.p4-prompt-pill {
+  background: rgba(14, 165, 233, 0.13);
+  border-color: rgba(14, 165, 233, 0.34);
+  color: #e0f2fe;
+}
+
+.p4-prompt-label {
+  font: 600 10px var(--font);
+  color: #bae6fd;
+}
+
+.p4-research-btn {
+  background: rgba(34, 197, 94, 0.2);
+  color: #86efac;
+  border: 1px solid rgba(34, 197, 94, 0.38);
+}
+
+.p4-research-btn:hover {
+  background: rgba(34, 197, 94, 0.34);
+  color: #bbf7d0;
+}
+
+.p4-break-btn {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fcd34d;
+  border: 1px solid rgba(245, 158, 11, 0.38);
+}
+
+.p4-break-btn:hover {
+  background: rgba(245, 158, 11, 0.34);
+  color: #fde68a;
+}
+
+.p4-session-pill {
+  background: rgba(14, 165, 233, 0.14);
+  border-color: rgba(14, 165, 233, 0.38);
+  color: #7dd3fc;
+}
+
+.p4-session-pill.break-mode {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.38);
+  color: #fcd34d;
+}
+
+.p4-editor-btn {
+  cursor: pointer;
+  background: rgba(168, 85, 247, 0.16);
+  border-color: rgba(168, 85, 247, 0.38);
+  color: #d8b4fe;
+  transition: background 0.12s ease, box-shadow 0.15s ease;
+}
+
+.p4-editor-btn:hover {
+  background: rgba(168, 85, 247, 0.3);
+  color: #f3e8ff;
+}
+
+.p4-editor-btn.nudge {
+  background: rgba(34, 197, 94, 0.24);
+  border-color: rgba(34, 197, 94, 0.55);
+  color: #bbf7d0;
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.35);
+}
+
+.p4-domain-badge {
+  margin-left: auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font: 600 9.5px var(--font);
+  letter-spacing: 0.01em;
+  text-transform: capitalize;
+  white-space: nowrap;
+  max-width: 165px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.p4-cat-productive {
+  background: rgba(34, 197, 94, 0.16);
+  border: 1px solid rgba(34, 197, 94, 0.36);
+  color: #4ade80;
+}
+
+.p4-cat-neutral {
+  background: rgba(59, 130, 246, 0.16);
+  border: 1px solid rgba(59, 130, 246, 0.36);
+  color: #93c5fd;
+}
+
+.p4-cat-distracting {
+  background: rgba(239, 68, 68, 0.18);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #f87171;
+}
+
 /* Power features: a notification makes the island's edge glow for a second
    (src/core/power.ts → PowerEngine.flashIsland). */
 #island.flash-border {

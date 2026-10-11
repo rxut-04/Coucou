@@ -1,0 +1,40 @@
+{
+  "productive": [
+    "github.com",
+    "gitlab.com",
+    "docs.rs",
+    "crates.io",
+    "rust-lang.org",
+    "stackoverflow.com",
+    "developer.mozilla.org",
+    "tauri.app",
+    "chatgpt.com",
+    "claude.ai",
+    "gemini.google.com",
+    "npmjs.com",
+    "localhost",
+    "127.0.0.1"
+  ],
+  "neutral": [
+    "google.com",
+    "duckduckgo.com",
+    "search.brave.com",
+    "brave.com",
+    "wikipedia.org",
+    "news.ycombinator.com",
+    "archlinux.org",
+    "ubuntu.com",
+    "kde.org"
+  ],
+  "distracting": [
+    "youtube.com",
+    "twitter.com",
+    "x.com",
+    "reddit.com",
+    "instagram.com",
+    "facebook.com",
+    "netflix.com",
+    "twitch.tv",
+    "tiktok.com"
+  ]
+}

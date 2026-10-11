@@ -32,6 +32,7 @@ mod workflow;
 mod focus_tracker;
 
 use focus_tracker::FocusTrackerState;
+mod browser_intent;
 mod classify;
 mod db;
 mod engine;
@@ -656,6 +657,7 @@ pub fn run() {
             gate: gate.clone(),
         })
         .manage(Arc::new(focus_tracker::FocusTrackerState::default()))
+        .manage(Arc::new(browser_intent::BrowserIntentState::default()))
         .manage(db::DbState::new(db::default_db_path()))
         .manage(Pending::default())
         .manage(Chat::default())
@@ -743,6 +745,8 @@ pub fn run() {
             db::focus_session_start,
             db::focus_session_finish,
             db::focus_session_list,
+            browser_intent::browser_intent_status,
+            browser_intent::browser_intent_record_session,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -756,6 +760,7 @@ pub fn run() {
             #[cfg(target_os = "linux")]
             {
                 focus_tracker::start(handle.clone());
+                browser_intent::start(handle.clone());
             }
 
             if let Some(win) = island::window(&handle) {

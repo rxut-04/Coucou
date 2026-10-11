@@ -12,7 +12,7 @@ import type { FileDiff } from "./diff";
 import type { Bindings } from "./shortcuts";
 import { DEFAULT_OUTFIT, type Outfit } from "../mochi/wardrobe";
 import { getQuoteForWindow } from "./quotes";
-import { Bridge, type TaskRecord } from "./bridge";
+import { Bridge, type DomainCategory, type TaskRecord } from "./bridge";
 
 export type AgentSource = "claudeCode" | "n8n" | "agent";
 export type PillBadge = "approval" | "finished" | "error";
@@ -34,6 +34,14 @@ export interface ActiveFocusSession {
   paused: boolean;
   taskTitle: string;
   appClass: string;
+}
+
+export interface ActiveBrowserSession {
+  intent: "research" | "break";
+  remainingSecs: number;
+  targetSecs: number;
+  elapsedSecs: number;
+  startedAtMs: number;
 }
 
 export interface AgentTask {
@@ -479,6 +487,16 @@ class AppState {
   currentTaskRecord: TaskRecord | null = null;
   /** Active 25-minute focus session countdown state (Phase 3). */
   focusSession: ActiveFocusSession | null = null;
+  /** Phase 4: Latest domain reported by Brave extension & its classified category. */
+  browserDomain: { domain: string; category: DomainCategory } | null = null;
+  /** Phase 4: Whether the "Research or break?" prompt is open on browser focus. */
+  browserPromptOpen = false;
+  /** Phase 4: Active timed browser session (Research 15m or Break 5m). */
+  browserSession: ActiveBrowserSession | null = null;
+  /** Phase 4: True when a browser session timer has finished and is nudging back to editor. */
+  browserNudgeToEditor = false;
+  /** Phase 4: Most recently active editor/terminal window so we can jump right back. */
+  lastEditorWindow: { id: string; pid: number; resourceClass: string; name: string } | null = null;
   /**
    * Mochi is out of the island — on the desktop, flying, or being dragged
    * there — so the island's own Mochi is hidden (AppState.mochiOnDesktop).
@@ -557,6 +575,21 @@ class AppState {
       this.lastActiveWindowId = nextActiveId;
       if (nextActiveId !== prevActiveId) {
         this.lastWorkflowQuote = getQuoteForWindow(explicitActive.resourceClass, explicitActive.caption);
+      }
+      const clsLower = (explicitActive.resourceClass || "").toLowerCase();
+      if (
+        clsLower.includes("antigravity") ||
+        clsLower.includes("kiro") ||
+        clsLower.includes("code") ||
+        clsLower.includes("cursor") ||
+        clsLower.includes("konsole")
+      ) {
+        this.lastEditorWindow = {
+          id: explicitActive.id,
+          pid: explicitActive.pid,
+          resourceClass: explicitActive.resourceClass,
+          name: windowLabel(explicitActive.resourceClass, explicitActive.caption, "Editor"),
+        };
       }
     } else if (this.lastActiveWindowId) {
       // When the user clicks Coucou or the desktop, KWin marks Coucou/plasmashell

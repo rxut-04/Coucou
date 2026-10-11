@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Coucou Browser Intent",
+  "version": "0.2.0",
+  "description": "Sends only the active tab's domain hostname to Coucou's local token-protected endpoint (127.0.0.1:49172).",
+  "permissions": [
+    "tabs",
+    "activeTab",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:49172/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Coucou Browser Intent",
+    "default_popup": "popup.html"
+  }
+}

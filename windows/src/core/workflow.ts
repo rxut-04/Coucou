@@ -1,7 +1,7 @@
 // Workflow tracking: app usage timers, motivational quotes, and work notifications.
 // Monitors active windows and triggers island notifications based on time.
 
-import { Bridge } from "./bridge";
+import { Bridge, onEvent, type BrowserDomainEvent } from "./bridge";
 import { Sound } from "./sound";
 import { State } from "./state";
 import { classifySessionCategory, getQuoteForWindow, getRandomQuote, type QuoteCategory } from "./quotes";
@@ -119,7 +119,163 @@ class WorkflowEngine {
     this.loadSettings();
     State.lastWorkflowQuote = getQuoteForWindow("vscode");
     void this.syncCurrentTask();
+    void this.initBrowserIntent();
     this.startTracking();
+  }
+
+  private async initBrowserIntent() {
+    const status = await Bridge.browserIntentStatus();
+    if (status?.lastDomain && status?.lastCategory) {
+      State.browserDomain = {
+        domain: status.lastDomain,
+        category: status.lastCategory,
+      };
+      State.notify();
+    }
+
+    await onEvent<BrowserDomainEvent>("browser-domain", (evt) => {
+      if (!evt?.domain) return;
+      State.browserDomain = {
+        domain: evt.domain,
+        category: evt.category,
+      };
+
+      const badgeLabel =
+        evt.category === "productive"
+          ? "Productive"
+          : evt.category === "distracting"
+            ? "Distracting"
+            : "Neutral";
+
+      if (
+        evt.category === "distracting" &&
+        (State.browserSession?.intent === "research" || State.focusSession != null)
+      ) {
+        const editorName = State.lastEditorWindow?.name || "your editor";
+        this.showNotification({
+          message: `Heads up: ${evt.domain} is marked distracting during focus.`,
+          detail: `Click "↩ ${editorName}" whenever you're ready to jump back.`,
+        });
+        State.browserNudgeToEditor = true;
+      } else {
+        State.lastWorkflowDetail = `🌐 ${evt.domain} · ${badgeLabel}`;
+      }
+      State.notify();
+    });
+  }
+
+  startBrowserSession(intent: "research" | "break", customSecs?: number) {
+    const targetSecs = customSecs ?? (intent === "research" ? 900 : 300);
+    State.browserPromptOpen = false;
+    State.browserNudgeToEditor = false;
+    State.browserSession = {
+      intent,
+      remainingSecs: targetSecs,
+      targetSecs,
+      elapsedSecs: 0,
+      startedAtMs: Date.now(),
+    };
+    const label = intent === "research" ? "🔍 Research" : "☕ Break";
+    const domainPart = State.browserDomain ? ` · ${State.browserDomain.domain}` : "";
+    State.lastWorkflowDetail = `${label} ${formatMmSs(targetSecs)}${domainPart}`;
+    Sound.play("peek");
+    State.notify();
+  }
+
+  cancelBrowserSession() {
+    const active = State.browserSession;
+    State.browserSession = null;
+    State.browserPromptOpen = false;
+    if (active && active.elapsedSecs > 0) {
+      const domain = State.browserDomain?.domain || "browser";
+      const category = State.browserDomain?.category || "neutral";
+      void Bridge.browserIntentRecordSession(domain, category, active.intent, active.elapsedSecs);
+    }
+    Sound.play("close");
+    State.notify();
+  }
+
+  dismissBrowserPrompt() {
+    State.browserPromptOpen = false;
+    State.notify();
+  }
+
+  async jumpBackToEditor() {
+    State.browserNudgeToEditor = false;
+    State.browserPromptOpen = false;
+    Sound.play("blip");
+
+    if (State.lastEditorWindow) {
+      await Bridge.focusTrackerActivateWindow(
+        State.lastEditorWindow.id,
+        State.lastEditorWindow.pid,
+        State.lastEditorWindow.resourceClass,
+      );
+      State.notify();
+      return;
+    }
+
+    const editorWin = State.desktopWindows.find((w) => {
+      const cls = (w.resourceClass || "").toLowerCase();
+      return (
+        cls.includes("antigravity") ||
+        cls.includes("kiro") ||
+        cls.includes("code") ||
+        cls.includes("cursor") ||
+        cls.includes("konsole")
+      );
+    });
+    if (editorWin) {
+      await Bridge.focusTrackerActivateWindow(
+        editorWin.id,
+        editorWin.pid,
+        editorWin.resourceClass,
+      );
+    } else {
+      await Bridge.focusTrackerActivateWindow("", 0, "antigravity");
+    }
+    State.notify();
+  }
+
+  private tickBrowserSession() {
+    const session = State.browserSession;
+    if (!session) return;
+
+    session.remainingSecs = Math.max(0, session.remainingSecs - 1);
+    session.elapsedSecs += 1;
+
+    const label = session.intent === "research" ? "🔍 Research" : "☕ Break";
+    const domainPart = State.browserDomain ? ` · ${State.browserDomain.domain}` : "";
+    if (!State.focusSession) {
+      State.lastWorkflowDetail = `${label} ${formatMmSs(session.remainingSecs)}${domainPart}`;
+    }
+
+    if (session.remainingSecs <= 0) {
+      const finished = { ...session };
+      State.browserSession = null;
+      State.browserNudgeToEditor = true;
+      Sound.play("complete");
+
+      const domain = State.browserDomain?.domain || "browser";
+      const category = State.browserDomain?.category || "neutral";
+      void Bridge.browserIntentRecordSession(
+        domain,
+        category,
+        finished.intent,
+        finished.targetSecs,
+      );
+
+      const mins = Math.max(1, Math.round(finished.targetSecs / 60));
+      const editorName = State.lastEditorWindow?.name || "your editor";
+      const kindLabel = finished.intent === "research" ? "Research" : "Break";
+      this.showNotification({
+        message: `${mins}m ${kindLabel} time is up! Ready to return to ${editorName}? 🚀`,
+        detail: `Click "↩ ${editorName}" in the bar to jump right back`,
+      });
+      return;
+    }
+
+    State.notify();
   }
 
   async syncCurrentTask() {
@@ -272,6 +428,7 @@ class WorkflowEngine {
   private tick() {
     this.detectActiveApp();
     this.tickFocusSession();
+    this.tickBrowserSession();
     this.checkNotifications();
   }
 
@@ -288,6 +445,14 @@ class WorkflowEngine {
           this.currentApp = newApp;
           this.appStartTime = Date.now();
           State.lastWorkflowQuote = getRandomQuote(newApp as QuoteCategory);
+          if (newApp === "browser") {
+            if (!State.browserSession) {
+              State.browserPromptOpen = true;
+            }
+          } else {
+            State.browserPromptOpen = false;
+            State.browserNudgeToEditor = false;
+          }
           State.notify();
         } else if (this.currentApp === "other" && State.focusTask) {
           const fallbackApp = this.classifyApp(
@@ -297,6 +462,9 @@ class WorkflowEngine {
           if (fallbackApp !== "other") {
             this.currentApp = fallbackApp;
             State.lastWorkflowQuote = getRandomQuote(fallbackApp as QuoteCategory);
+            if (fallbackApp === "browser" && !State.browserSession) {
+              State.browserPromptOpen = true;
+            }
             State.notify();
           }
         }

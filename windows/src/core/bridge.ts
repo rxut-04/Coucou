@@ -204,6 +204,19 @@ export const Bridge = {
   focusSessionList: (limit = 20) =>
     call<FocusSessionRecord[]>("focus_session_list", { limit }),
 
+  // ── Phase 4: Browser Intent & Domain Classification (browser_intent.rs) ───
+  browserIntentStatus: () => call<BrowserIntentStatus>("browser_intent_status"),
+  browserIntentRules: () => call<DomainRules>("browser_intent_rules"),
+  browserIntentClassify: (domain: string) =>
+    call<{ domain: string; category: DomainCategory }>("browser_intent_classify", { domain }),
+  browserIntentRecordSession: (domain: string, category: string, intent: string, durationSecs: number) =>
+    call<BrowserSessionRecord | null>("browser_intent_record_session", {
+      domain,
+      category,
+      intent,
+      durationSecs,
+    }),
+
   // ── Mochi on the desktop (src-tauri/src/desktop.rs) ───────────────────────
   desktopInfo: () => call<DesktopInfo>("desktop_mochi_info"),
   /** Dragged out of the island: (x, y) is the pointer in island-window coordinates. */
@@ -223,6 +236,40 @@ export const Bridge = {
   /** Asleep, the cursor poll stops. */
   desktopSetAsleep: (asleep: boolean) => call<void>("desktop_mochi_set_asleep", { asleep }),
 };
+
+export type DomainCategory = "productive" | "neutral" | "distracting";
+
+export interface DomainRules {
+  productive: string[];
+  neutral: string[];
+  distracting: string[];
+}
+
+export interface BrowserDomainEvent {
+  domain: string;
+  category: DomainCategory;
+  intent: string;
+  timestamp: number;
+}
+
+export interface BrowserIntentStatus {
+  endpoint: string;
+  tokenPath: string;
+  rulesPath: string;
+  lastDomain: string | null;
+  lastCategory: DomainCategory | null;
+  lastUpdatedAt: number | null;
+}
+
+export interface BrowserSessionRecord {
+  id: number;
+  startedAt: number;
+  endedAt: number | null;
+  domain: string;
+  category: string;
+  intent: string;
+  durationSecs: number;
+}
 
 export interface TaskRecord {
   id: number;

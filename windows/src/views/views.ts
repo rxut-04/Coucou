@@ -233,7 +233,85 @@ export function buildHeader(actions: ViewActions): ViewHost {
     focusCancelBtn,
   );
 
-  const phase3Bar = h("div", { class: "phase3-bar" }, taskPillEl, focusStartBtn, focusActivePill);
+  // ── Phase 4: Browser Intent ("Research or break?", timer, & Back to Editor) ─
+  const browserResearchBtn = h(
+    "button",
+    {
+      class: "p3-btn p4-research-btn",
+      title: "Start 15-minute Research session",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        Workflow.startBrowserSession("research", 900);
+      },
+    },
+    h("span", { text: "🔍 Research" }),
+  );
+
+  const browserBreakBtn = h(
+    "button",
+    {
+      class: "p3-btn p4-break-btn",
+      title: "Start 5-minute Break session",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        Workflow.startBrowserSession("break", 300);
+      },
+    },
+    h("span", { text: "☕ Break" }),
+  );
+
+  const browserPromptPill = h(
+    "div",
+    { class: "p3-pill p4-prompt-pill" },
+    h("span", { class: "p4-prompt-label", text: "Research or break?" }),
+    browserResearchBtn,
+    browserBreakBtn,
+  );
+
+  const browserSessionTimeSpan = h("span", { class: "p3-focus-time", text: "🔍 15:00" });
+  const browserSessionCancelBtn = h(
+    "button",
+    {
+      class: "p3-btn p3-cancel-btn",
+      title: "End browser session",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        Workflow.cancelBrowserSession();
+      },
+    },
+    h("span", { text: "✕" }),
+  );
+
+  const browserSessionPill = h(
+    "div",
+    { class: "p3-pill p4-session-pill" },
+    browserSessionTimeSpan,
+    browserSessionCancelBtn,
+  );
+
+  const backToEditorBtn = h(
+    "button",
+    {
+      class: "p3-pill p4-editor-btn",
+      title: "Jump back to your editor",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        void Workflow.jumpBackToEditor();
+      },
+    },
+    h("span", { text: "↩ Editor" }),
+  );
+
+  const phase3Bar = h(
+    "div",
+    { class: "phase3-bar" },
+    taskPillEl,
+    focusStartBtn,
+    focusActivePill,
+    browserPromptPill,
+    browserSessionPill,
+    backToEditorBtn,
+  );
 
   function syncPhase3Bar() {
     const taskTitle = State.currentTaskRecord?.title || "Deep work session";
@@ -252,6 +330,31 @@ export function buildHeader(actions: ViewActions): ViewHost {
       focusActivePill.classList.toggle("paused", session.paused);
       focusPauseBtn.textContent = session.paused ? "▶" : "⏸";
     }
+
+    const bSession = State.browserSession;
+    const isBrowserFocused =
+      State.focusTask?.name === "Browser" ||
+      (State.focusTask?.windowClass || "").toLowerCase().includes("brave");
+
+    if (bSession) {
+      browserPromptPill.style.display = "none";
+      browserSessionPill.style.display = "";
+      const icon = bSession.intent === "research" ? "🔍" : "☕";
+      browserSessionTimeSpan.textContent = `${icon} ${formatMmSs(bSession.remainingSecs)}`;
+      browserSessionPill.classList.toggle("break-mode", bSession.intent === "break");
+    } else if (State.browserPromptOpen || isBrowserFocused) {
+      browserPromptPill.style.display = "";
+      browserSessionPill.style.display = "none";
+    } else {
+      browserPromptPill.style.display = "none";
+      browserSessionPill.style.display = "none";
+    }
+
+    const showBackEditor = State.browserNudgeToEditor || isBrowserFocused;
+    backToEditorBtn.style.display = showBackEditor ? "" : "none";
+    const editorName = State.lastEditorWindow?.name || "Editor";
+    backToEditorBtn.textContent = `↩ ${editorName}`;
+    backToEditorBtn.classList.toggle("nudge", State.browserNudgeToEditor);
   }
 
   function go(v: IslandViewName) {
@@ -489,7 +592,8 @@ function buildOverview(actions: ViewActions): ViewHost {
         if (isDesktopWindow) {
           const quoteText = State.lastWorkflowQuote ?? "";
           const detailText = State.lastWorkflowDetail ?? "";
-          const key = `window~${task.id}~${task.windowActive ?? false}~${task.windowCaption ?? ""}~${quoteText}~${detailText}`;
+          const domainKey = `${State.browserDomain?.domain ?? ""}:${State.browserDomain?.category ?? ""}`;
+          const key = `window~${task.id}~${task.windowActive ?? false}~${task.windowCaption ?? ""}~${quoteText}~${detailText}~${domainKey}`;
           if (key !== cardKey) {
             cardKey = key;
             mode = "card";
@@ -566,6 +670,17 @@ function renderDesktopWindowCard(task: AgentTask, quoteText: string, detailText 
   const isActive = task.windowActive ?? (task.state !== "idle");
   const statusColor = isActive ? "#22C55E" : "#6B7079";
   const statusLabel = detailText || task.windowCaption || task.name;
+  const isBrowser =
+    task.name === "Browser" ||
+    (task.windowClass || "").toLowerCase().includes("brave");
+
+  const bDomain = isBrowser ? State.browserDomain : null;
+  const domainBadgeEl = bDomain
+    ? h("span", {
+        class: `p4-domain-badge p4-cat-${bDomain.category}`,
+        text: `${bDomain.domain} · ${bDomain.category}`,
+      })
+    : null;
 
   return h(
     "div",
@@ -586,6 +701,7 @@ function renderDesktopWindowCard(task: AgentTask, quoteText: string, detailText 
       dot(task.color, 7),
       h("b", { text: task.name }),
       h("span", { text: isActive ? "Active" : "Idle" }),
+      domainBadgeEl,
     ),
     quoteText
       ? h("div", { class: "wf-note-msg", text: quoteText })
