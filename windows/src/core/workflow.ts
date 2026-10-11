@@ -1,7 +1,13 @@
 // Workflow tracking: app usage timers, motivational quotes, and work notifications.
 // Monitors active windows and triggers island notifications based on time.
 
-import { Bridge, onEvent, type BrowserDomainEvent } from "./bridge";
+import {
+  Bridge,
+  onEvent,
+  type AgentLiveStatus,
+  type AgentWaitEventPayload,
+  type BrowserDomainEvent,
+} from "./bridge";
 import { Sound } from "./sound";
 import { State } from "./state";
 import { classifySessionCategory, getQuoteForWindow, getRandomQuote, type QuoteCategory } from "./quotes";
@@ -100,6 +106,16 @@ export function formatMmSs(totalSeconds: number): string {
   return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
 }
 
+export function formatDurationCompact(totalSeconds: number): string {
+  const clamped = Math.max(0, Math.floor(totalSeconds));
+  const hrs = Math.floor(clamped / 3600);
+  const mins = Math.floor((clamped % 3600) / 60);
+  const secs = clamped % 60;
+  if (hrs > 0) return `${hrs}h ${mins}m`;
+  if (mins > 0) return `${mins}m ${secs}s`;
+  return `${secs}s`;
+}
+
 class WorkflowEngine {
   settings: WorkflowSettings = { ...DEFAULT_WORKFLOW_SETTINGS };
 
@@ -110,6 +126,7 @@ class WorkflowEngine {
   private lastQuoteTime: number = Date.now();
   private lastWorkNotificationTime: number = Date.now();
   private workSessionStartTime: number = Date.now();
+  private agentPollCounter = 0;
 
   // Notification display timeout
   private notificationTimeout: number | null = null;
@@ -120,7 +137,100 @@ class WorkflowEngine {
     State.lastWorkflowQuote = getQuoteForWindow("vscode");
     void this.syncCurrentTask();
     void this.initBrowserIntent();
+    void this.initAgentMonitor();
     this.startTracking();
+  }
+
+  private async initAgentMonitor() {
+    const snap = await Bridge.agentMonitorStatus();
+    if (snap) {
+      State.activeAgentWait = snap.activeAgent;
+      State.weeklyAgentWaitStats = snap.weeklyStats;
+      State.notify();
+    }
+
+    await onEvent<AgentWaitEventPayload>("agent-wait-event", (evt) => {
+      if (!evt) return;
+      State.weeklyAgentWaitStats = evt.weeklyStats;
+      if (evt.state === "working") {
+        State.activeAgentWait = {
+          agent: evt.agent,
+          displayName: evt.displayName,
+          windowClass: evt.windowClass,
+          state: "working",
+          detail: evt.detail,
+          startedAt: evt.timestamp,
+          elapsedSecs: 0,
+          lastWaitSecs: 0,
+          sourcePath: "",
+        };
+        Sound.play("peek");
+        State.notify();
+      } else if (evt.state === "done") {
+        State.activeAgentWait = {
+          agent: evt.agent,
+          displayName: evt.displayName,
+          windowClass: evt.windowClass,
+          state: "done",
+          detail: evt.detail,
+          startedAt: evt.timestamp - evt.waitSecs,
+          elapsedSecs: 0,
+          lastWaitSecs: evt.waitSecs,
+          sourcePath: "",
+        };
+        Sound.play("complete");
+        const weeklyStr = formatDurationCompact(evt.weeklyStats.totalWaitSecs);
+        this.showNotification({
+          message: `🤖 ${evt.displayName} done, review it! (waited ${formatDurationCompact(evt.waitSecs)})`,
+          detail: `Click to jump to ${evt.displayName} · Weekly agent wait: ${weeklyStr}`,
+        });
+      }
+    });
+  }
+
+  async focusAndAcknowledgeAgent(target?: AgentLiveStatus | null) {
+    const ag = target ?? State.activeAgentWait;
+    if (!ag) return;
+    Sound.play("blip");
+
+    const winClass = ag.windowClass || ag.agent;
+    const match = State.desktopWindows.find((w) =>
+      (w.resourceClass || "").toLowerCase().includes(winClass.toLowerCase()),
+    );
+    if (match) {
+      await Bridge.focusTrackerActivateWindow(match.id, match.pid, match.resourceClass);
+    } else {
+      await Bridge.focusTrackerActivateWindow("", 0, winClass);
+    }
+
+    if (ag.state === "done") {
+      await Bridge.agentMonitorAcknowledge(ag.agent);
+      State.activeAgentWait = null;
+      State.notify();
+    }
+  }
+
+  private tickAgentMonitor() {
+    if (State.activeAgentWait?.state === "working") {
+      State.activeAgentWait.elapsedSecs += 1;
+      State.notify();
+    }
+    this.agentPollCounter += 1;
+    if (this.agentPollCounter % 2 === 0) {
+      void Bridge.agentMonitorStatus().then((snap) => {
+        if (!snap) return;
+        State.weeklyAgentWaitStats = snap.weeklyStats;
+        const prevState = State.activeAgentWait?.state;
+        const prevAgent = State.activeAgentWait?.agent;
+        State.activeAgentWait = snap.activeAgent;
+        if (
+          snap.activeAgent?.state !== prevState ||
+          snap.activeAgent?.agent !== prevAgent
+        ) {
+          State.notify();
+        }
+      });
+    }
   }
 
   private async initBrowserIntent() {
@@ -429,6 +539,7 @@ class WorkflowEngine {
     this.detectActiveApp();
     this.tickFocusSession();
     this.tickBrowserSession();
+    this.tickAgentMonitor();
     this.checkNotifications();
   }
 

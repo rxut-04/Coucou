@@ -104,6 +104,29 @@ pub struct BrowserSessionRecord {
     pub duration_secs: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentWaitRecord {
+    pub id: i64,
+    pub agent: String,
+    pub window_class: String,
+    pub started_at: i64,
+    pub ended_at: i64,
+    pub wait_secs: i64,
+    pub status: String,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WeeklyAgentWaitStats {
+    pub total_wait_secs: i64,
+    pub total_sessions: i64,
+    pub antigravity_secs: i64,
+    pub kiro_secs: i64,
+    pub opencode_secs: i64,
+}
+
 pub struct DbState {
     path: PathBuf,
     lock: Mutex<()>,
@@ -335,6 +358,16 @@ impl DbState {
                  intent TEXT NOT NULL DEFAULT 'browse',
                  started_at INTEGER NOT NULL,
                  duration_secs INTEGER NOT NULL DEFAULT 0
+             );
+             CREATE TABLE IF NOT EXISTS agent_wait_sessions (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 agent TEXT NOT NULL,
+                 window_class TEXT NOT NULL DEFAULT '',
+                 started_at INTEGER NOT NULL,
+                 ended_at INTEGER NOT NULL,
+                 wait_secs INTEGER NOT NULL DEFAULT 0,
+                 status TEXT NOT NULL DEFAULT 'done',
+                 detail TEXT NOT NULL DEFAULT ''
              );
              CREATE TABLE IF NOT EXISTS event_log (
                  id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -746,6 +779,136 @@ impl DbState {
         }
         out
     }
+
+    pub fn record_agent_wait(
+        &self,
+        agent: &str,
+        window_class: &str,
+        started_at: i64,
+        wait_secs: i64,
+        detail: &str,
+    ) -> Option<AgentWaitRecord> {
+        let now = unix_now();
+        let clean_agent = agent.trim().to_lowercase();
+        if clean_agent.is_empty() {
+            return None;
+        }
+        let clean_class = window_class.trim();
+        let clean_detail = detail.trim();
+        let clean_wait = wait_secs.max(1);
+        let clean_start = if started_at > 0 { started_at } else { now - clean_wait };
+
+        let row_id = {
+            let _guard = self.lock.lock().ok()?;
+            let conn = Connection::open(&self.path).ok()?;
+            let stmt = Statement::prepare(
+                &conn,
+                "INSERT INTO agent_wait_sessions (agent, window_class, started_at, ended_at, wait_secs, status, detail)
+                 VALUES (?1, ?2, ?3, ?4, ?5, 'done', ?6);",
+            )
+            .ok()?;
+            stmt.bind_text(1, &clean_agent).ok()?;
+            stmt.bind_text(2, clean_class).ok()?;
+            stmt.bind_i64(3, clean_start).ok()?;
+            stmt.bind_i64(4, now).ok()?;
+            stmt.bind_i64(5, clean_wait).ok()?;
+            stmt.bind_text(6, clean_detail).ok()?;
+            stmt.step().ok()?;
+            conn.last_insert_rowid()
+        };
+
+        self.log_event(
+            "agent_wait_recorded",
+            &serde_json::json!({
+                "id": row_id,
+                "agent": clean_agent,
+                "windowClass": clean_class,
+                "waitSecs": clean_wait,
+                "detail": clean_detail,
+            })
+            .to_string(),
+        );
+
+        Some(AgentWaitRecord {
+            id: row_id,
+            agent: clean_agent,
+            window_class: clean_class.to_string(),
+            started_at: clean_start,
+            ended_at: now,
+            wait_secs: clean_wait,
+            status: "done".to_string(),
+            detail: clean_detail.to_string(),
+        })
+    }
+
+    pub fn list_agent_waits(&self, limit: i64) -> Vec<AgentWaitRecord> {
+        let Ok(_guard) = self.lock.lock() else {
+            return Vec::new();
+        };
+        let Ok(conn) = Connection::open(&self.path) else {
+            return Vec::new();
+        };
+        let Ok(stmt) = Statement::prepare(
+            &conn,
+            "SELECT id, agent, window_class, started_at, ended_at, wait_secs, status, detail
+             FROM agent_wait_sessions
+             ORDER BY id DESC
+             LIMIT ?1;",
+        ) else {
+            return Vec::new();
+        };
+        let _ = stmt.bind_i64(1, limit.max(1));
+        let mut out = Vec::new();
+        while stmt.step().unwrap_or(false) {
+            out.push(AgentWaitRecord {
+                id: stmt.col_i64(0),
+                agent: stmt.col_text(1),
+                window_class: stmt.col_text(2),
+                started_at: stmt.col_i64(3),
+                ended_at: stmt.col_i64(4),
+                wait_secs: stmt.col_i64(5),
+                status: stmt.col_text(6),
+                detail: stmt.col_text(7),
+            });
+        }
+        out
+    }
+
+    pub fn weekly_agent_wait_stats(&self) -> WeeklyAgentWaitStats {
+        let since = unix_now() - 7 * 86_400;
+        let Ok(_guard) = self.lock.lock() else {
+            return WeeklyAgentWaitStats::default();
+        };
+        let Ok(conn) = Connection::open(&self.path) else {
+            return WeeklyAgentWaitStats::default();
+        };
+        let Ok(stmt) = Statement::prepare(
+            &conn,
+            "SELECT agent, COUNT(*), COALESCE(SUM(wait_secs), 0)
+             FROM agent_wait_sessions
+             WHERE ended_at >= ?1
+             GROUP BY agent;",
+        ) else {
+            return WeeklyAgentWaitStats::default();
+        };
+        let _ = stmt.bind_i64(1, since);
+        let mut stats = WeeklyAgentWaitStats::default();
+        while stmt.step().unwrap_or(false) {
+            let agent = stmt.col_text(0).to_lowercase();
+            let count = stmt.col_i64(1);
+            let sum_secs = stmt.col_i64(2);
+            stats.total_sessions += count;
+            stats.total_wait_secs += sum_secs;
+            if agent.contains("antigravity") {
+                stats.antigravity_secs += sum_secs;
+            } else if agent.contains("kiro") {
+                stats.kiro_secs += sum_secs;
+            } else if agent.contains("opencode") {
+                stats.opencode_secs += sum_secs;
+            }
+        }
+        stats
+    }
 }
 
 #[tauri::command]
@@ -846,6 +1009,8 @@ pub fn handle_cli_args() -> bool {
                 "tasks": db.list_tasks(10),
                 "focusSessions": db.list_focus_sessions(10),
                 "browserSessions": db.list_browser_sessions(10),
+                "agentWaits": db.list_agent_waits(10),
+                "weeklyAgentWaitStats": db.weekly_agent_wait_stats(),
             });
             println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
         }

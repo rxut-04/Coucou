@@ -217,6 +217,17 @@ export const Bridge = {
       durationSecs,
     }),
 
+  // ── Phase 5: AI Agent Waiting Gap Monitor (agent_monitor.rs) ──────────────
+  agentMonitorStatus: () => call<AgentMonitorSnapshot>("agent_monitor_status"),
+  agentMonitorAcknowledge: (agent?: string) =>
+    call<boolean>("agent_monitor_acknowledge", agent ? { agent } : {}),
+  agentMonitorTrigger: (agent: string, targetState: string, detail?: string) =>
+    call<AgentWaitEventPayload | null>("agent_monitor_trigger", {
+      agent,
+      targetState,
+      detail,
+    }),
+
   // ── Mochi on the desktop (src-tauri/src/desktop.rs) ───────────────────────
   desktopInfo: () => call<DesktopInfo>("desktop_mochi_info"),
   /** Dragged out of the island: (x, y) is the pointer in island-window coordinates. */
@@ -236,6 +247,55 @@ export const Bridge = {
   /** Asleep, the cursor poll stops. */
   desktopSetAsleep: (asleep: boolean) => call<void>("desktop_mochi_set_asleep", { asleep }),
 };
+
+export interface AgentLiveStatus {
+  agent: string;
+  displayName: string;
+  windowClass: string;
+  state: "idle" | "working" | "done" | string;
+  detail: string;
+  startedAt: number;
+  elapsedSecs: number;
+  lastWaitSecs: number;
+  sourcePath: string;
+}
+
+export interface WeeklyAgentWaitStats {
+  totalWaitSecs: number;
+  totalSessions: number;
+  antigravitySecs: number;
+  kiroSecs: number;
+  opencodeSecs: number;
+}
+
+export interface AgentWaitRecord {
+  id: number;
+  agent: string;
+  windowClass: string;
+  startedAt: number;
+  endedAt: number;
+  waitSecs: number;
+  status: string;
+  detail: string;
+}
+
+export interface AgentMonitorSnapshot {
+  agents: AgentLiveStatus[];
+  activeAgent: AgentLiveStatus | null;
+  weeklyStats: WeeklyAgentWaitStats;
+  recentWaits: AgentWaitRecord[];
+}
+
+export interface AgentWaitEventPayload {
+  agent: string;
+  displayName: string;
+  windowClass: string;
+  state: "working" | "done" | "idle" | string;
+  detail: string;
+  waitSecs: number;
+  timestamp: number;
+  weeklyStats: WeeklyAgentWaitStats;
+}
 
 export type DomainCategory = "productive" | "neutral" | "distracting";
 

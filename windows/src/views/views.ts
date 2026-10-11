@@ -22,7 +22,7 @@ import { buildRecap } from "./recap";
 import { buildWardrobe } from "./wardrobe";
 import type { Outfit, OutfitSelection } from "../mochi/wardrobe";
 import { language, t, tl, type Msg } from "../i18n/i18n";
-import { Workflow, formatMmSs } from "../core/workflow";
+import { Workflow, formatDurationCompact, formatMmSs } from "../core/workflow";
 
 export interface ViewActions {
   setView(v: IslandViewName): void;
@@ -302,12 +302,28 @@ export function buildHeader(actions: ViewActions): ViewHost {
     h("span", { text: "↩ Editor" }),
   );
 
+  // ── Phase 5: AI Agent Waiting Gap Pill ("Agent working" / "Agent done, review it")
+  const agentWaitLabel = h("span", { class: "p5-agent-label", text: "🤖 Agent working" });
+  const agentWaitPill = h(
+    "button",
+    {
+      class: "p3-pill p5-agent-pill",
+      title: "Click to jump to agent window",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        void Workflow.focusAndAcknowledgeAgent();
+      },
+    },
+    agentWaitLabel,
+  );
+
   const phase3Bar = h(
     "div",
     { class: "phase3-bar" },
     taskPillEl,
     focusStartBtn,
     focusActivePill,
+    agentWaitPill,
     browserPromptPill,
     browserSessionPill,
     backToEditorBtn,
@@ -329,6 +345,25 @@ export function buildHeader(actions: ViewActions): ViewHost {
       focusTimeSpan.textContent = `${session.paused ? "⏸ " : ""}${formatMmSs(session.remainingSecs)}`;
       focusActivePill.classList.toggle("paused", session.paused);
       focusPauseBtn.textContent = session.paused ? "▶" : "⏸";
+    }
+
+    const ag = State.activeAgentWait;
+    const weekly = State.weeklyAgentWaitStats;
+    const weeklySummary = `Weekly agent wait: ${formatDurationCompact(weekly.totalWaitSecs)} (${weekly.totalSessions} runs)`;
+    if (!ag || ag.state === "idle") {
+      agentWaitPill.style.display = "none";
+    } else if (ag.state === "working") {
+      agentWaitPill.style.display = "";
+      agentWaitPill.classList.remove("done");
+      agentWaitPill.classList.add("working");
+      agentWaitLabel.textContent = `🤖 ${ag.displayName} working · ${formatMmSs(ag.elapsedSecs)}`;
+      agentWaitPill.title = `${ag.detail || "Agent working"} — Click to focus ${ag.displayName} (${weeklySummary})`;
+    } else if (ag.state === "done") {
+      agentWaitPill.style.display = "";
+      agentWaitPill.classList.remove("working");
+      agentWaitPill.classList.add("done");
+      agentWaitLabel.textContent = `🤖 ${ag.displayName} done, review it ↗`;
+      agentWaitPill.title = `Waited ${formatDurationCompact(ag.lastWaitSecs)} · Click to focus ${ag.displayName} (${weeklySummary})`;
     }
 
     const bSession = State.browserSession;
@@ -653,7 +688,21 @@ function renderWorkflowQuoteCard(task: AgentTask | null, message: string, detail
   const label = task ? (task.id === "integration_claude" ? "VS Code" : task.name) : "Coucou";
   return h(
     "div",
-    { class: "int-card wf-card" },
+    {
+      class: "int-card wf-card wf-clickable",
+      title: "Click to jump to window",
+      onclick: () => {
+        if (State.activeAgentWait) {
+          void Workflow.focusAndAcknowledgeAgent();
+        } else if (task) {
+          void Bridge.focusTrackerActivateWindow(
+            task.id,
+            task.windowPid ?? 0,
+            task.windowClass ?? task.name,
+          );
+        }
+      },
+    },
     h(
       "div",
       { class: "int-head" },

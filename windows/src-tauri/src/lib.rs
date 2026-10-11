@@ -32,6 +32,7 @@ mod workflow;
 mod focus_tracker;
 
 use focus_tracker::FocusTrackerState;
+mod agent_monitor;
 mod browser_intent;
 mod classify;
 mod db;
@@ -658,6 +659,7 @@ pub fn run() {
         })
         .manage(Arc::new(focus_tracker::FocusTrackerState::default()))
         .manage(Arc::new(browser_intent::BrowserIntentState::default()))
+        .manage(Arc::new(agent_monitor::AgentMonitorState::new()))
         .manage(db::DbState::new(db::default_db_path()))
         .manage(Pending::default())
         .manage(Chat::default())
@@ -747,6 +749,9 @@ pub fn run() {
             db::focus_session_list,
             browser_intent::browser_intent_status,
             browser_intent::browser_intent_record_session,
+            agent_monitor::agent_monitor_status,
+            agent_monitor::agent_monitor_acknowledge,
+            agent_monitor::agent_monitor_trigger,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -761,6 +766,8 @@ pub fn run() {
             {
                 focus_tracker::start(handle.clone());
                 browser_intent::start(handle.clone());
+                let monitor_state = handle.state::<Arc<agent_monitor::AgentMonitorState>>().inner().clone();
+                agent_monitor::spawn_agent_monitor(handle.clone(), monitor_state);
             }
 
             if let Some(win) = island::window(&handle) {

@@ -12,7 +12,13 @@ import type { FileDiff } from "./diff";
 import type { Bindings } from "./shortcuts";
 import { DEFAULT_OUTFIT, type Outfit } from "../mochi/wardrobe";
 import { getQuoteForWindow } from "./quotes";
-import { Bridge, type DomainCategory, type TaskRecord } from "./bridge";
+import {
+  Bridge,
+  type AgentLiveStatus,
+  type DomainCategory,
+  type TaskRecord,
+  type WeeklyAgentWaitStats,
+} from "./bridge";
 
 export type AgentSource = "claudeCode" | "n8n" | "agent";
 export type PillBadge = "approval" | "finished" | "error";
@@ -497,6 +503,16 @@ class AppState {
   browserNudgeToEditor = false;
   /** Phase 4: Most recently active editor/terminal window so we can jump right back. */
   lastEditorWindow: { id: string; pid: number; resourceClass: string; name: string } | null = null;
+  /** Phase 5: Currently working or recently finished AI agent (Antigravity, Kiro, OpenCode). */
+  activeAgentWait: AgentLiveStatus | null = null;
+  /** Phase 5: Weekly agent wait time statistics from SQLite. */
+  weeklyAgentWaitStats: WeeklyAgentWaitStats = {
+    totalWaitSecs: 0,
+    totalSessions: 0,
+    antigravitySecs: 0,
+    kiroSecs: 0,
+    opencodeSecs: 0,
+  };
   /**
    * Mochi is out of the island — on the desktop, flying, or being dragged
    * there — so the island's own Mochi is hidden (AppState.mochiOnDesktop).
