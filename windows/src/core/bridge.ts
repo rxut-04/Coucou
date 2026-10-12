@@ -333,6 +333,12 @@ export interface DailyChartPoint {
   tasksDone: number;
 }
 
+export interface TopTaskActivity {
+  title: string;
+  app: string;
+  mins: number;
+}
+
 export interface StatsDashboardData {
   day: string;
   dailyScore: number;
@@ -345,6 +351,12 @@ export interface StatsDashboardData {
   currentLevelXp: number;
   nextLevelXp: number;
   streakDays: number;
+  focusMinsToday?: number;
+  tasksDoneToday?: number;
+  goalsDoneToday?: number;
+  goalsTotalToday?: number;
+  agentRunsToday?: number;
+  topTasks?: TopTaskActivity[];
   weeklyInsight: string;
   dailyChart: DailyChartPoint[];
 }

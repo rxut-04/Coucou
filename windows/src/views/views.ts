@@ -419,7 +419,8 @@ export function buildHeader(actions: ViewActions): ViewHost {
       State.layoutStressMode === "recap" ||
       State.layoutStressMode === "agent";
 
-    const taskTitle = State.currentTaskRecord?.title || "Deep work session";
+    const rawTaskTitle = State.currentTaskRecord?.title || "Deep work session";
+    const taskTitle = cleanTaskLabel(rawTaskTitle);
     taskLabelEl.textContent = taskTitle;
     taskLabelEl.title = `${taskTitle} — Click to rename current task`;
     taskPillEl.title = `Current task: ${taskTitle}`;
@@ -913,10 +914,14 @@ function buildOverview(actions: ViewActions): ViewHost {
             clear(leftBody);
             leftBody.append(renderDesktopWindowCard(task, quoteText, detailText));
           } else {
-            const capEl = leftBody.querySelector<HTMLElement>(".wf-win-caption");
-            if (capEl) {
+            const statusBox = leftBody.querySelector<HTMLElement>(".wf-structured-status");
+            if (statusBox) {
               const nextCap = detailText || task.windowCaption || task.name;
-              if (capEl.textContent !== nextCap) capEl.textContent = nextCap;
+              const isActive = task.windowActive ?? (task.state !== "idle");
+              const statusColor = isActive ? "#22C55E" : "#6B7079";
+              if (statusBox.dataset.rawCaption !== nextCap) {
+                populateStructuredWindowStatus(statusBox, statusColor, nextCap, task.name);
+              }
             }
           }
         } else {
@@ -1406,7 +1411,7 @@ function renderStatsDashboardCard(sd: import("../core/bridge").StatsDashboardDat
 
   const chartBars = sd.dailyChart.map((pt, idx) => {
     const isToday = idx === sd.dailyChart.length - 1;
-    const heightPx = Math.max(4, Math.round((pt.score / 100) * 26));
+    const heightPx = Math.max(4, Math.round((pt.score / 100) * 30));
     return h(
       "div",
       {
@@ -1422,6 +1427,83 @@ function renderStatsDashboardCard(sd: import("../core/bridge").StatsDashboardDat
     );
   });
 
+  const focusMins = sd.focusMinsToday ?? sd.dailyChart[sd.dailyChart.length - 1]?.focusMins ?? 0;
+  const tasksDone = sd.tasksDoneToday ?? sd.dailyChart[sd.dailyChart.length - 1]?.tasksDone ?? 0;
+  const goalsDone = sd.goalsDoneToday ?? State.dailyGoals.filter((g) => g.done).length;
+  const goalsTotal = sd.goalsTotalToday ?? State.dailyGoals.length;
+  const agentRuns = sd.agentRunsToday ?? 0;
+
+  const breakdownItems = [
+    {
+      icon: "⚡",
+      label: "Work",
+      pts: `+${sd.scoreBreakdown.focusPoints}`,
+      sub: `${focusMins}m`,
+      cls: "focus",
+    },
+    {
+      icon: "✅",
+      label: "Tasks",
+      pts: `+${sd.scoreBreakdown.taskPoints}`,
+      sub: `${tasksDone}`,
+      cls: "task",
+    },
+    {
+      icon: "🎯",
+      label: "To-Dos",
+      pts: `+${sd.scoreBreakdown.goalPoints}`,
+      sub: `${goalsDone}/${goalsTotal}`,
+      cls: "goal",
+    },
+    {
+      icon: "🌐",
+      label: "Research",
+      pts: `+${sd.scoreBreakdown.browserPoints}`,
+      sub: "",
+      cls: "browser",
+    },
+    {
+      icon: "🤖",
+      label: "Agents",
+      pts: `+${sd.scoreBreakdown.agentPoints}`,
+      sub: `${agentRuns}`,
+      cls: "agent",
+    },
+  ];
+
+  const breakdownChips = breakdownItems.map((item) =>
+    h(
+      "div",
+      { class: `p8-stat-chip p8-chip-${item.cls}` },
+      h("span", { class: "p8-chip-lbl", text: `${item.icon} ${item.label}` }),
+      h("b", { class: "p8-chip-pts", text: item.pts }),
+      item.sub ? h("span", { class: "p8-chip-sub", text: item.sub }) : null,
+    ),
+  );
+
+  const rawTopTasks = sd.topTasks && sd.topTasks.length > 0
+    ? sd.topTasks
+    : [
+        {
+          title: cleanTaskLabel(State.currentTaskRecord?.title || "Deep work session"),
+          app: State.focusTask?.name || "Workspace",
+          mins: focusMins,
+        },
+      ];
+
+  const taskPills = rawTopTasks.slice(0, 2).map((t) => {
+    const cleanTitle = cleanTaskLabel(t.title);
+    return h(
+      "div",
+      {
+        class: "p8-task-pill",
+        title: `${cleanTitle} (${t.app} · ${t.mins}m today)`,
+      },
+      h("span", { class: "p8-task-name", text: `📌 ${cleanTitle}` }),
+      h("span", { class: "p8-task-meta", text: `${t.app} · ${t.mins}m` }),
+    );
+  });
+
   return h(
     "div",
     {
@@ -1433,9 +1515,9 @@ function renderStatsDashboardCard(sd: import("../core/bridge").StatsDashboardDat
       { class: "int-head p6-card-head" },
       dot("#F59E0B", 7),
       h("b", { text: `🏆 Today ${sd.dailyScore}/100` }),
-      h("span", {
-        text: `${sd.levelTitle} (${sd.totalXp} XP) · 🔥${sd.streakDays}d streak · 🕛 Resets 00:00`,
-      }),
+      h("span", { class: "p8-head-badge", text: `L${sd.level} · ${sd.totalXp} XP` }),
+      h("span", { class: "p8-head-badge streak", text: `🔥 ${sd.streakDays}d` }),
+      h("span", { class: "p8-head-badge reset", text: "🕛 00:00" }),
       h(
         "button",
         {
@@ -1456,20 +1538,25 @@ function renderStatsDashboardCard(sd: import("../core/bridge").StatsDashboardDat
       h(
         "div",
         { class: "p8-meta" },
+        h("div", { class: "p8-breakdown-grid" }, ...breakdownChips),
         h(
           "div",
-          { class: "p8-xp-row" },
+          { class: "p8-bottom-row" },
+          h("div", { class: "p8-tasks-row" }, ...taskPills),
           h(
             "div",
-            { class: "p8-xp-bar" },
-            h("div", { class: "p8-xp-fill", style: `width:${xpPct}%` }),
+            { class: "p8-xp-row", title: `${sd.levelTitle}` },
+            h(
+              "div",
+              { class: "p8-xp-bar" },
+              h("div", { class: "p8-xp-fill", style: `width:${xpPct}%` }),
+            ),
+            h("span", {
+              class: "p8-xp-txt",
+              text: `${sd.currentLevelXp}/${sd.nextLevelXp} XP`,
+            }),
           ),
-          h("span", {
-            class: "p8-xp-txt",
-            text: `${sd.currentLevelXp}/${sd.nextLevelXp} XP · Work +${sd.scoreBreakdown.focusPoints} · Tasks +${sd.scoreBreakdown.taskPoints} · To-Dos +${sd.scoreBreakdown.goalPoints} · Research +${sd.scoreBreakdown.browserPoints} · Agents +${sd.scoreBreakdown.agentPoints}`,
-          }),
         ),
-        h("div", { class: "p8-insight", text: `💡 ${sd.weeklyInsight}` }),
       ),
     ),
   );
@@ -1861,6 +1948,123 @@ function renderWorkflowQuoteCard(task: AgentTask | null, message: string, detail
   );
 }
 
+function shortenInlinePaths(input: string): string {
+  // Replace quoted paths like "/run/media/.../Coucou_0.2.0_amd64.deb" with their basename
+  const withoutQuotedPaths = input.replace(/"([^"]+)"|'([^']+)'/g, (full, dquote, squote) => {
+    const inner = (dquote || squote || "").trim();
+    if (inner.startsWith("/") && inner.split("/").filter(Boolean).length >= 2) {
+      return inner.split("/").filter(Boolean).pop() || inner;
+    }
+    return full;
+  });
+  // Also shorten unquoted absolute paths
+  return withoutQuotedPaths
+    .split(/\s+/)
+    .map((tok) => {
+      if (tok.startsWith("/") && tok.split("/").filter(Boolean).length >= 2) {
+        return tok.split("/").filter(Boolean).pop() || tok;
+      }
+      return tok;
+    })
+    .join(" ");
+}
+
+function cleanTaskLabel(raw: string): string {
+  const trimmed = (raw || "").trim();
+  if (!trimmed) return "Deep work session";
+  const lower = trimmed.toLowerCase();
+  if (lower.includes("dpkg -i") || lower.includes(">/dev/null") || lower.includes("killall coucou")) {
+    return "Deep work session";
+  }
+  const shortened = shortenInlinePaths(trimmed.split(/\s+[—–]\s+/)[0].trim() || trimmed)
+    .replace(/\s*>\s*\/dev\/null.*$/i, "")
+    .trim();
+  return shortened.length > 44 ? `${shortened.slice(0, 42).trimEnd()}…` : shortened;
+}
+
+function parseStructuredStatusChips(
+  rawCaption: string,
+  taskName: string,
+): Array<{ text: string; isCode?: boolean }> {
+  const raw = (rawCaption || "").trim();
+  if (!raw) return [{ text: taskName || "Active" }];
+
+  // Strip trailing app title suffix like " — Konsole", " — Antigravity", " - Brave"
+  const withoutAppSuffix = raw
+    .replace(/\s+[—–-]\s+(Konsole|Terminal|Antigravity|Visual Studio Code|VS Code|Kiro|Brave|Google Chrome|Firefox|Cursor)\s*$/i, "")
+    .trim();
+
+  const looksLikeShellCmd =
+    withoutAppSuffix.includes("&&") ||
+    withoutAppSuffix.includes(">/dev/null") ||
+    withoutAppSuffix.includes("2>&1") ||
+    /^(sudo|dpkg|apt|cargo|npm|npx|git|killall|nohup|systemctl|docker|python|node|sh|bash|zsh)\b/i.test(
+      withoutAppSuffix,
+    );
+
+  if (looksLikeShellCmd) {
+    const stages = withoutAppSuffix
+      .split(/\s*(?:&&|;)\s*/)
+      .map((part) =>
+        shortenInlinePaths(part)
+          .replace(/\s*>\s*\/dev\/null.*$/i, "")
+          .replace(/\s*2>&1\s*&?\s*$/i, "")
+          .replace(/\s+&\s*$/, "")
+          .trim(),
+      )
+      .filter(Boolean);
+
+    if (stages.length > 0) {
+      return stages.slice(0, 3).map((cmd, idx) => {
+        const icon = idx === 0 ? "🐚" : cmd.startsWith("kill") ? "⚡" : "▶";
+        const capped = cmd.length > 38 ? `${cmd.slice(0, 36).trimEnd()}…` : cmd;
+        return { text: `${icon} ${capped}`, isCode: true };
+      });
+    }
+  }
+
+  // IDE or multi-segment window title: "views.ts — COUCOU"
+  const segments = withoutAppSuffix
+    .split(/\s+[—–]\s+/)
+    .map((s) => shortenInlinePaths(s.trim()))
+    .filter(Boolean);
+
+  if (segments.length >= 2) {
+    return segments.slice(0, 3).map((seg, idx) => {
+      const capped = seg.length > 38 ? `${seg.slice(0, 36).trimEnd()}…` : seg;
+      const prefix = idx === 0 ? "📄 " : idx === 1 ? "📁 " : "";
+      return { text: `${prefix}${capped}` };
+    });
+  }
+
+  const single = shortenInlinePaths(withoutAppSuffix);
+  const capped = single.length > 56 ? `${single.slice(0, 54).trimEnd()}…` : single;
+  return [{ text: capped }];
+}
+
+function populateStructuredWindowStatus(
+  container: HTMLElement,
+  statusColor: string,
+  rawCaption: string,
+  taskName: string,
+) {
+  clear(container);
+  container.dataset.rawCaption = rawCaption;
+  container.title = rawCaption;
+  container.append(dot(statusColor, 6));
+
+  const chips = parseStructuredStatusChips(rawCaption, taskName);
+  for (const chip of chips) {
+    container.append(
+      h("span", {
+        class: `wf-status-chip ${chip.isCode ? "cmd" : ""}`,
+        text: chip.text,
+        title: rawCaption,
+      }),
+    );
+  }
+}
+
 function renderDesktopWindowCard(task: AgentTask, quoteText: string, detailText = ""): HTMLElement {
   const isActive = task.windowActive ?? (task.state !== "idle");
   const statusColor = isActive ? "#22C55E" : "#6B7079";
@@ -1876,6 +2080,9 @@ function renderDesktopWindowCard(task: AgentTask, quoteText: string, detailText 
         text: `${bDomain.domain} · ${bDomain.category}`,
       })
     : null;
+
+  const statusContainer = h("div", { class: "int-status wf-structured-status" });
+  populateStructuredWindowStatus(statusContainer, statusColor, statusLabel, task.name);
 
   return h(
     "div",
@@ -1901,12 +2108,7 @@ function renderDesktopWindowCard(task: AgentTask, quoteText: string, detailText 
     quoteText
       ? h("div", { class: "wf-note-msg", text: quoteText })
       : null,
-    h(
-      "div",
-      { class: "int-status" },
-      dot(statusColor, 5),
-      h("span", { class: "wf-win-caption", text: statusLabel }),
-    ),
+    statusContainer,
   );
 }
 

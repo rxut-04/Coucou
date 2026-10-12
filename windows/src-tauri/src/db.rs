@@ -226,6 +226,14 @@ pub struct DailyChartPoint {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct TopTaskActivity {
+    pub title: String,
+    pub app: String,
+    pub mins: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct StatsDashboardData {
     pub day: String,
     pub daily_score: i64,
@@ -238,6 +246,12 @@ pub struct StatsDashboardData {
     pub current_level_xp: i64,
     pub next_level_xp: i64,
     pub streak_days: i64,
+    pub focus_mins_today: i64,
+    pub tasks_done_today: i64,
+    pub goals_done_today: i64,
+    pub goals_total_today: i64,
+    pub agent_runs_today: i64,
+    pub top_tasks: Vec<TopTaskActivity>,
     pub weekly_insight: String,
     pub daily_chart: Vec<DailyChartPoint>,
 }
@@ -600,6 +614,16 @@ impl DbState {
              WHERE title = 'Ship core feature milestone' AND done = 1 AND completed_at = created_at;",
         );
 
+        // Sanitize any accidentally pasted terminal commands in tasks / daily_task_activity
+        let _ = conn.exec(
+            "UPDATE tasks SET title = 'Deep work session'
+             WHERE title LIKE '%dpkg -i%' OR title LIKE '%>/dev/null%' OR title LIKE '%killall coucou%';",
+        );
+        let _ = conn.exec(
+            "UPDATE daily_task_activity SET task_title = 'Deep work session'
+             WHERE task_title LIKE '%dpkg -i%' OR task_title LIKE '%>/dev/null%' OR task_title LIKE '%killall coucou%';",
+        );
+
         let today = today_date_string();
         Self::ensure_today_goals_in_conn(&conn, &today);
         Ok(())
@@ -715,7 +739,7 @@ impl DbState {
     }
 
     pub fn set_task(&self, title: &str, project: &str) -> Option<TaskRecord> {
-        let clean_title = title.trim();
+        let clean_title = sanitize_task_label(title);
         if clean_title.is_empty() {
             return self.current_task();
         }
@@ -729,7 +753,7 @@ impl DbState {
                 "INSERT INTO tasks (title, project, status, created_at) VALUES (?1, ?2, 'active', ?3);",
             )
             .ok()?;
-            stmt.bind_text(1, clean_title).ok()?;
+            stmt.bind_text(1, &clean_title).ok()?;
             stmt.bind_text(2, clean_project).ok()?;
             stmt.bind_i64(3, now).ok()?;
             stmt.step().ok()?;
@@ -1189,13 +1213,11 @@ impl DbState {
 
     pub fn record_task_activity(&self, task_title: &str, app_class: &str, delta_secs: i64) -> bool {
         let clamped = delta_secs.clamp(1, 300);
-        let clean_task = {
-            let t = task_title.trim();
-            if t.is_empty() {
-                "Deep work session"
-            } else {
-                t
-            }
+        let sanitized = sanitize_task_label(task_title);
+        let clean_task = if sanitized.is_empty() {
+            "Deep work session"
+        } else {
+            sanitized.as_str()
         };
         let clean_app = {
             let a = app_class.trim();
@@ -1931,17 +1953,31 @@ impl DbState {
             weights.penalty_per_distracting_browser_min,
         );
 
-        let top_task_summary = if !top_tasks_today.is_empty() {
-            let parts: Vec<String> = top_tasks_today
+        let structured_top_tasks: Vec<TopTaskActivity> = if !top_tasks_today.is_empty() {
+            top_tasks_today
                 .iter()
-                .map(|(t, app, secs)| {
-                    let m = (*secs / 60).max(1);
-                    format!("\"{t}\" ({app} · {m}m)")
+                .map(|(t, app, secs)| TopTaskActivity {
+                    title: sanitize_task_label(t),
+                    app: app.clone(),
+                    mins: (*secs / 60).max(1),
                 })
+                .collect()
+        } else if let Some(cur) = self.current_task() {
+            vec![TopTaskActivity {
+                title: sanitize_task_label(&cur.title),
+                app: "active".to_string(),
+                mins: focus_mins_today,
+            }]
+        } else {
+            Vec::new()
+        };
+
+        let top_task_summary = if !structured_top_tasks.is_empty() {
+            let parts: Vec<String> = structured_top_tasks
+                .iter()
+                .map(|item| format!("\"{}\" ({} · {}m)", item.title, item.app, item.mins))
                 .collect();
             format!(" · Worked on: {}", parts.join(", "))
-        } else if let Some(cur) = self.current_task() {
-            format!(" · Active task: \"{}\"", cur.title)
         } else {
             String::new()
         };
@@ -1970,9 +2006,57 @@ impl DbState {
             current_level_xp,
             next_level_xp: xp_per_lvl,
             streak_days,
+            focus_mins_today,
+            tasks_done_today,
+            goals_done_today: goals_done,
+            goals_total_today: goals_total,
+            agent_runs_today,
+            top_tasks: structured_top_tasks,
             weekly_insight,
             daily_chart,
         }
+    }
+}
+
+/// Converts raw window titles, long file paths, or pasted shell commands into a clean,
+/// structured, human-readable task label (never a long paragraph of shell syntax).
+pub fn sanitize_task_label(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    // If someone pasted the dpkg install/restart command or a shell pipeline with redirections:
+    let lower = trimmed.to_ascii_lowercase();
+    if lower.contains("dpkg -i") || lower.contains(">/dev/null") || lower.contains("killall coucou") {
+        return "Deep work session".to_string();
+    }
+
+    // Strip trailing terminal suffixes like " — Konsole" or " - bash"
+    let without_suffix = trimmed
+        .split(" — ")
+        .next()
+        .unwrap_or(trimmed)
+        .trim();
+
+    // If it contains long absolute paths (/run/media/..., /home/...), shorten paths to basenames
+    let mut tokens = Vec::new();
+    for tok in without_suffix.split_whitespace() {
+        let unquoted = tok.trim_matches('"').trim_matches('\'');
+        if unquoted.starts_with('/') && unquoted.matches('/').count() >= 2 {
+            if let Some(base) = Path::new(unquoted).file_name().and_then(|s| s.to_str()) {
+                tokens.push(base.to_string());
+                continue;
+            }
+        }
+        tokens.push(tok.to_string());
+    }
+    let joined = tokens.join(" ");
+    if joined.chars().count() > 44 {
+        let short: String = joined.chars().take(42).collect();
+        format!("{}…", short.trim_end())
+    } else {
+        joined
     }
 }
 
