@@ -15,8 +15,8 @@ use tauri::{AppHandle, Emitter, Manager, Monitor, PhysicalPosition, PhysicalSize
 use crate::platform::{self, cursor_physical, left_button_down};
 
 /// Logical default size of the full window (Comfortable preset default, grown dynamically).
-pub const PANEL_W: f64 = 960.0;
-pub const PANEL_H: f64 = 380.0;
+pub const PANEL_W: f64 = 1040.0;
+pub const PANEL_H: f64 = 420.0;
 /// Logical size of the invisible strip that wakes the island when it is hidden.
 pub const STRIP_W: f64 = 240.0;
 pub const STRIP_H: f64 = 6.0;

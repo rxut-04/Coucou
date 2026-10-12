@@ -53,14 +53,14 @@ export interface ViewLayout {
 import { getIslandSizeConfig } from "./size-config";
 
 // Default panel dimensions for Comfortable preset; grown dynamically via ResizeObserver.
-export const PANEL_W = 960;
-export const PANEL_H = 380;
+export const PANEL_W = 1040;
+export const PANEL_H = 420;
 
 // No notch on a PC: these are the hidden/compact sizes from docs/SPEC.md.
 export const NOTCH_W = 220;
 export const NOTCH_H = 44;
-export const COMPACT_W = 370;
-export const EXPANDED_W = 960;
+export const COMPACT_W = 390;
+export const EXPANDED_W = 1040;
 
 export const ROUNDED_CORNER = 14; // hidden / compact
 export const EXPANDED_CORNER = 22;
