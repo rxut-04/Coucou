@@ -5,11 +5,11 @@
   /* After the Latin fonts: the scripts of the other interface languages —
      Devanagari and Bengali (Nirmala UI), Simplified Chinese (Microsoft YaHei)
      on Windows, the Noto families on Linux. Arabic and Cyrillic are in Segoe UI. */
-  --font: "Manrope Variable", "Manrope", system-ui, "Segoe UI Variable Text", "Segoe UI",
-    "Segoe UI Emoji", "Nirmala UI", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans",
-    "Noto Sans Devanagari", "Noto Sans Bengali", "Noto Sans Arabic", "Noto Sans CJK SC",
-    "Noto Sans SC", "Droid Sans Fallback", sans-serif;
-  --mono: "Cascadia Code Variable", "Cascadia Code", "Cascadia Mono", "Consolas", ui-monospace,
+  --font: "Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui,
+    "Segoe UI Variable Text", "Segoe UI", "Segoe UI Emoji", "Nirmala UI", "Microsoft YaHei UI",
+    "Microsoft YaHei", "Noto Sans", "Noto Sans Devanagari", "Noto Sans Bengali",
+    "Noto Sans Arabic", "Noto Sans CJK SC", "Noto Sans SC", "Droid Sans Fallback", sans-serif;
+  --mono: "JetBrains Mono Variable", "JetBrains Mono", "Cascadia Mono", "Consolas", ui-monospace,
     monospace;
 
   --ink: #f5f6f8;        /* primary text */

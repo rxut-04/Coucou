@@ -13,7 +13,7 @@ import {
   type UploadEyeShape, type UploadFrame,
 } from "./sequence";
 
-const FONT = `"Manrope Variable", "Manrope", system-ui, "Segoe UI Variable Text", "Segoe UI", ${SCRIPT_FONTS}, sans-serif`;
+const FONT = `"Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, "Segoe UI Variable Text", "Segoe UI", ${SCRIPT_FONTS}, sans-serif`;
 
 /** The card's inner right edge: no text runs past it. */
 const TEXT_RIGHT = USC.CARD_X + USC.CARD_W - 16;

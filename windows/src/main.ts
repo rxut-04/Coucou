@@ -1,7 +1,7 @@
 // Entry point: boot the bridge, wire the island, start the greeting.
 
-import "@fontsource-variable/manrope";
-import "@fontsource-variable/cascadia-code";
+import "@fontsource-variable/bricolage-grotesque";
+import "@fontsource-variable/jetbrains-mono";
 import "./style.css";
 import { Bridge, IS_TAURI, onEvent, type DesktopWindow } from "./core/bridge";
 import { Sound } from "./core/sound";

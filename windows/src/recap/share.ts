@@ -10,8 +10,8 @@ import { SCRIPT_FONTS } from "../core/fonts";
 export const SHARE_W = 1080;
 export const SHARE_H = 1920;
 
-const FONT = `"Manrope Variable", "Manrope", system-ui, "Segoe UI Variable Display", "Segoe UI", "Cantarell", "Ubuntu", ${SCRIPT_FONTS}, sans-serif`;
-const MONO = `"Cascadia Code Variable", "Cascadia Code", "Cascadia Mono", "Consolas", "DejaVu Sans Mono", ui-monospace, monospace`;
+const FONT = `"Bricolage Grotesque Variable", "Bricolage Grotesque", system-ui, "Segoe UI Variable Display", "Segoe UI", "Cantarell", "Ubuntu", ${SCRIPT_FONTS}, sans-serif`;
+const MONO = `"JetBrains Mono Variable", "JetBrains Mono", "Cascadia Mono", "Consolas", "DejaVu Sans Mono", ui-monospace, monospace`;
 
 const INK = "#F1F2F4";
 const DIM = "#8E939C";
