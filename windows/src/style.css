@@ -186,6 +186,44 @@ body {
   transition: opacity 0.25s ease-in-out;
 }
 
+/* Centered date & time display in the compact (inactive) bar. */
+#compact-clock {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s ease-in-out;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+#compact-clock .cc-date {
+  font-size: calc(11.5px * var(--size-font-scale, 1.08));
+  font-weight: 500;
+  color: #aeb4be;
+  letter-spacing: 0.01em;
+}
+
+#compact-clock .cc-sep {
+  font-size: calc(11.5px * var(--size-font-scale, 1.08));
+  color: rgba(255, 255, 255, 0.32);
+  font-weight: 600;
+}
+
+#compact-clock .cc-time {
+  font-size: calc(12.5px * var(--size-font-scale, 1.08));
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: 0.015em;
+}
+
 /* A mini Mochi: the slot is the body, the canvas is larger and overflows it so
    hands, badges and particles are not cut off. */
 .mini {

@@ -62,6 +62,10 @@ export class Island {
   private botGlow!: HTMLElement;
   private greetingCanvas!: HTMLCanvasElement;
   private miniGrid!: HTMLElement;
+  private compactClock!: HTMLElement;
+  private clockDateEl!: HTMLElement;
+  private clockTimeEl!: HTMLElement;
+  private lastClockKey = "";
   private countdown!: HTMLElement;
   private wakeStrip!: HTMLElement;
 
@@ -376,6 +380,15 @@ export class Island {
     this.botCanvas = h("canvas", { id: "bot-canvas" });
     this.greetingCanvas = h("canvas", { id: "greeting-canvas" });
     this.miniGrid = h("div", { id: "mini-grid" });
+    this.clockDateEl = h("span", { class: "cc-date" });
+    this.clockTimeEl = h("span", { class: "cc-time" });
+    this.compactClock = h(
+      "div",
+      { id: "compact-clock" },
+      this.clockDateEl,
+      h("span", { class: "cc-sep", text: "·" }),
+      this.clockTimeEl,
+    );
     this.countdown = h("div", { id: "countdown" });
 
     this.header = buildHeader(actions);
@@ -409,6 +422,7 @@ export class Island {
       this.clipEl,
       this.botGlow,
       this.botCanvas,
+      this.compactClock,
       this.miniGrid,
       this.countdown,
     );
@@ -420,6 +434,10 @@ export class Island {
     this.greetingCanvas.style.height = "150px";
 
     this.root.append(this.wakeStrip, this.islandEl);
+    this.updateCompactClock();
+    window.setInterval(() => {
+      if (State.mode === "compact") this.updateCompactClock();
+    }, 1000);
     if (typeof ResizeObserver !== "undefined") {
       const ro = new ResizeObserver(() => {
         if (State.mode !== "expanded") return;
@@ -1464,6 +1482,25 @@ export class Island {
       remaining < windowS ? `${Math.max(0, clamp(remaining / windowS, 0, 1) * 160)}px` : "0px";
   }
 
+  private updateCompactClock(now = new Date()) {
+    if (!this.clockDateEl || !this.clockTimeEl) return;
+    const dateStr = now.toLocaleDateString("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+    });
+    const timeStr = now.toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
+    const key = `${dateStr}|${timeStr}`;
+    if (this.lastClockKey === key) return;
+    this.lastClockKey = key;
+    this.clockDateEl.textContent = dateStr;
+    this.clockTimeEl.textContent = timeStr;
+  }
+
   // ── DOM sync ────────────────────────────────────────────────────────────────
 
   private syncDom() {
@@ -1518,10 +1555,12 @@ export class Island {
       }
     }
 
-    // Compact mini grid
+    // Compact mini grid & centered date/time bar
     const showGrid = State.mode === "compact";
     this.miniGrid.style.opacity = showGrid ? "1" : "0";
+    this.compactClock.style.opacity = showGrid ? "1" : "0";
     if (showGrid) {
+      this.updateCompactClock();
       const others = State.otherTasks.slice(0, 4);
       const key = others.map((t) => t.id).join("|");
       if (this.miniGrid.dataset.key !== key) {
