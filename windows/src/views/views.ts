@@ -1646,8 +1646,8 @@ function renderStatsDashboardCard(sd: import("../core/bridge").StatsDashboardDat
 
 function renderWeather3dSvg(kind: string, variant: "hero" | "forecast", uid: string): HTMLElement {
   const wrap = h("div", { class: `wx-svg-wrap wx-svg-${variant} wx-kind-${kind}` });
-  const w = variant === "hero" ? 48 : 34;
-  const ht = variant === "hero" ? 32 : 30;
+  const w = variant === "hero" ? 40 : 30;
+  const ht = variant === "hero" ? 26 : 25;
 
   if (variant === "hero" || kind === "clouds") {
     wrap.innerHTML = `<svg class="wx-svg" viewBox="0 0 56 38" width="${w}" height="${ht}" aria-hidden="true">

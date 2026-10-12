@@ -71,7 +71,7 @@ const ACCENT = {
 
 export const PILL_CATALOG: readonly PillDefinition[] = [
   // ── Where you code ─────────────────────────────────────────────────────────
-  { id: "integration_claude", name: "VS Code", color: "#F5F6F8", category: "workspace",
+  { id: "integration_claude", name: "VS Code", color: "#0078D4", category: "workspace",
     subtitle: N_("Integration"), source: "claudeCode", support: "yes", connect: hooks },
   // Claude Code in Cursor's terminal: the same hooks as Claude Code.
   { id: "agent_cursor", name: "Cursor", color: "#C0C4CC", category: "workspace",
@@ -88,7 +88,7 @@ export const PILL_CATALOG: readonly PillDefinition[] = [
   { id: "agent_muse", name: "Muse Code", color: "#38BDF8", category: "agent",
     subtitle: N_("Agent"), source: "agent", support: "yes", connect: hooks },
   // A plugin that starts the relay, written from Settings → Agents (agents.rs).
-  { id: "agent_opencode", name: "OpenCode", color: "#4ADE80", category: "agent",
+  { id: "agent_opencode", name: "OpenCode", color: "#00D4AA", category: "agent",
     subtitle: N_("Agent"), source: "agent", support: "yes", connect: hooks },
   { id: "agent_amp", name: "Amp", color: "#F59E0B", category: "agent",
     subtitle: N_("Agent"), source: "agent", support: "yes", connect: hooks },

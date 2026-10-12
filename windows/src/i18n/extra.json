@@ -881,6 +881,17 @@
    "ru": "Отовсюду",
    "id": "Dari mana saja"
   },
+  "Go to alert": {
+   "zh-Hans": "前往提醒",
+   "hi": "अलर्ट पर जाएँ",
+   "es": "Ir a la alerta",
+   "ar": "الانتقال إلى التنبيه",
+   "fr": "Aller à l’alerte",
+   "bn": "অ্যালার্টে যান",
+   "pt-BR": "Ir para o alerta",
+   "ru": "Перейти к уведомлению",
+   "id": "Buka peringatan"
+  },
   "Go to pill 1 to 9": {
    "zh-Hans": "前往第 1 至 9 个标签",
    "hi": "टैब 1 से 9 पर जाएँ",
@@ -1518,6 +1529,17 @@
    "pt-BR": "Abrir Configurações",
    "ru": "Открыть настройки",
    "id": "Buka Pengaturan"
+  },
+  "Open chat": {
+   "zh-Hans": "打开聊天",
+   "hi": "चैट खोलें",
+   "es": "Abrir el chat",
+   "ar": "فتح الدردشة",
+   "fr": "Ouvrir le chat",
+   "bn": "চ্যাট খুলুন",
+   "pt-BR": "Abrir o chat",
+   "ru": "Открыть чат",
+   "id": "Buka obrolan"
   },
   "Open in VS Code": {
    "zh-Hans": "在 VS Code 中打开",
@@ -2442,6 +2464,17 @@
    "pt-BR": "Quinta-feira",
    "ru": "Четверг",
    "id": "Kamis"
+  },
+  "Toggle island": {
+   "zh-Hans": "切换岛屿",
+   "hi": "आइलैंड टॉगल करें",
+   "es": "Mostrar u ocultar la isla",
+   "ar": "إظهار الجزيرة/إخفاؤها",
+   "fr": "Afficher ou masquer l’îlot",
+   "bn": "আইল্যান্ড টগল করুন",
+   "pt-BR": "Alternar ilha",
+   "ru": "Показать или скрыть остров",
+   "id": "Alihkan pulau"
   },
   "Token": {
    "zh-Hans": "令牌",

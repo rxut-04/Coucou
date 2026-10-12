@@ -612,9 +612,11 @@ dependencies = [
 name = "coucou"
 version = "0.2.0"
 dependencies = [
+ "dirs 6.0.0",
  "gtk",
  "keyring",
  "libc",
+ "log",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -627,6 +629,7 @@ dependencies = [
  "webview2-com",
  "windows 0.61.3",
  "windows-core 0.62.2",
+ "zbus 5.19.0",
 ]
 
 [[package]]
@@ -861,6 +864,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ca3aa72a6f96ea37bbc5aa912f6788242832f75369bdfdadcb0e38423f100059"
 dependencies = [
  "dirs-sys 0.3.7",
+]
+
+[[package]]
+name = "dirs"
+version = "6.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3e8aa94d75141228480295a7d0e7feb620b1a5ad9f12bc40be62411e38cce4e"
+dependencies = [
+ "dirs-sys 0.5.0",
 ]
 
 [[package]]
@@ -4339,7 +4351,9 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
+ "tracing",
  "windows-sys 0.61.2",
 ]
 
@@ -5617,6 +5631,7 @@ dependencies = [
  "rustix",
  "serde",
  "serde_repr",
+ "tokio",
  "tracing",
  "uds_windows",
  "uuid",

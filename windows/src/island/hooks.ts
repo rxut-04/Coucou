@@ -15,6 +15,7 @@ import type { Island } from "./island";
 import { parseClaudePlan, restorePlanUsage } from "../core/plan";
 import { setClaudePlanUsage, storedClaudePlanUsage } from "../views/usage";
 import { N_, t } from "../i18n/i18n";
+import { Power } from "../core/power";
 
 const CLAUDE_ID = "integration_claude";
 const CURSOR_ID = "agent_cursor";
@@ -313,6 +314,9 @@ function handleHook(island: Island, payload: HookPayload) {
   // back to the pill you were on.
   const focused = State.focusId === agentId;
 
+  // Power features: log, notify, analytics
+  Power.onHookEvent(agentId, name, payload.message ?? payload.prompt ?? payload.tool_name ?? name, sessionId);
+
   switch (name) {
     case "SessionStart":
       ensurePill();
@@ -398,7 +402,8 @@ function handleHook(island: Island, payload: HookPayload) {
         if (t) t.finalLine = finalText;
       }
       Sound.play("finish");
-      // A card waiting for an answer is never covered by another alert.
+      // A card waiting for an answer is never covered by another alert, and a
+      // pill you are not looking at only gets its badge (Mac #140).
       if (focused && !State.pendingApproval) surface("finished", true);
       else State.setPillBadge(agentId, "finished");
       cancelStopTimer(agentId);
