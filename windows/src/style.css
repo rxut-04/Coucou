@@ -1429,6 +1429,46 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--dim-3);
 }
 
+.chip-remove {
+  display: inline-grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  margin-left: 2px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.chip-remove:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.attach-btn {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--ink-2);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background 0.12s ease-out, transform 0.08s ease-out;
+}
+
+.attach-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.attach-btn:active {
+  transform: scale(0.94);
+}
+
 .send-btn {
   width: 28px;
   height: 28px;

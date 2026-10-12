@@ -28,6 +28,8 @@ export interface ViewActions {
   setView(v: IslandViewName): void;
   /** "Cancel" on a dropped file: forgets it and goes back home. */
   cancelDrop(): void;
+  /** Opens a file chooser dialog from the upload or chat view. */
+  pickFile?(): void;
   collapse(): void;
   /** Folds a waiting card to the compact island without answering it. */
   foldApproval(): void;
@@ -1653,7 +1655,7 @@ export function buildViews(
   map.set("note", buildNote());
   map.set("settings", buildSettings(actions));
   map.set("prompt", buildPrompt(onChatHeightChange));
-  map.set("upload", buildUpload());
+  map.set("upload", buildUpload(actions));
   map.set("uploading", buildUploading());
   map.set("choose", buildChoose(actions));
   map.set("recap", buildRecap(actions));

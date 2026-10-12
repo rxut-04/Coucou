@@ -208,24 +208,172 @@ pub async fn models() -> Result<Vec<ModelInfo>, String> {
         .collect())
 }
 
+const MAX_DOC_CHARS: usize = 32_000;
+
+fn strip_xml_tags(xml: &str) -> String {
+    let normalized = xml
+        .replace("</w:p>", "\n")
+        .replace("<w:br/>", "\n")
+        .replace("<w:tab/>", "\t");
+    let mut out = String::with_capacity(normalized.len() / 2);
+    let mut in_tag = false;
+    for ch in normalized.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => out.push(ch),
+            _ => {}
+        }
+    }
+    out.trim().to_string()
+}
+
+fn read_utf8_prefix(path: &str, max_chars: usize) -> Option<String> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)
+        .ok()?
+        .take((max_chars * 4) as u64)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    let text = match String::from_utf8(bytes) {
+        Ok(s) => s,
+        Err(e) if e.utf8_error().error_len().is_none() => {
+            let valid = e.utf8_error().valid_up_to();
+            let mut b = e.into_bytes();
+            b.truncate(valid);
+            String::from_utf8(b).ok()?
+        }
+        Err(_) => return None,
+    };
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let mut clipped: String = trimmed.chars().take(max_chars).collect();
+    if clipped.len() < trimmed.len() {
+        clipped.push_str("\n...[truncated]");
+    }
+    Some(clipped)
+}
+
+/// Extracts readable UTF-8 text from an uploaded document (`.pdf` via
+/// `pdftotext`, `.docx` via `unzip`, or any text/code/markdown/CSV/JSON file).
+pub fn extract_document_text(path: &str) -> Option<String> {
+    let ext = Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    if ext == "pdf" {
+        let out = std::process::Command::new("pdftotext")
+            .arg("-layout")
+            .arg("-nopgbrk")
+            .arg(path)
+            .arg("-")
+            .output()
+            .or_else(|_| {
+                std::process::Command::new("pdftotext")
+                    .arg(path)
+                    .arg("-")
+                    .output()
+            })
+            .ok()?;
+        if out.status.success() {
+            let raw = String::from_utf8_lossy(&out.stdout);
+            let trimmed = raw.trim();
+            if !trimmed.is_empty() {
+                let mut clipped: String = trimmed.chars().take(MAX_DOC_CHARS).collect();
+                if clipped.len() < trimmed.len() {
+                    clipped.push_str("\n...[truncated]");
+                }
+                return Some(clipped);
+            }
+        }
+        return None;
+    }
+
+    if ext == "docx" {
+        let out = std::process::Command::new("unzip")
+            .arg("-p")
+            .arg(path)
+            .arg("word/document.xml")
+            .output()
+            .ok()?;
+        if out.status.success() {
+            let xml = String::from_utf8_lossy(&out.stdout);
+            let plain = strip_xml_tags(&xml);
+            if !plain.is_empty() {
+                let mut clipped: String = plain.chars().take(MAX_DOC_CHARS).collect();
+                if clipped.len() < plain.len() {
+                    clipped.push_str("\n...[truncated]");
+                }
+                return Some(clipped);
+            }
+        }
+        return None;
+    }
+
+    let is_binary_media = matches!(
+        ext.as_str(),
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "ico" | "mp3" | "mp4" | "wav" | "ogg" | "zip" | "tar" | "gz" | "7z"
+    );
+    if is_binary_media {
+        return None;
+    }
+
+    read_utf8_prefix(path, MAX_DOC_CHARS)
+}
+
 fn scratch_dir() -> PathBuf {
     let dir = std::env::temp_dir().join("coucou-chat");
     let _ = std::fs::create_dir_all(&dir);
     dir
 }
 
-fn build_prompt(
-    system: &str,
+fn history_has_doc(history: &[Value], name: &str) -> bool {
+    let marker = format!("--- BEGIN DOCUMENT: {name} ---");
+    history.iter().any(|turn| {
+        turn.get("content")
+            .and_then(Value::as_str)
+            .is_some_and(|c| c.contains(&marker))
+    })
+}
+
+fn build_user_turn<'a>(
     history: &[Value],
     first: bool,
-    context: Option<&ChatContext>,
+    context: Option<&'a ChatContext>,
     query: &str,
-) -> String {
+) -> (String, Option<&'a str>) {
+    match context {
+        Some(ChatContext::File { name, path }) => {
+            if !history_has_doc(history, name) {
+                if let Some(doc_text) = extract_document_text(path) {
+                    let enriched = format!(
+                        "Attached document: {name}\n--- BEGIN DOCUMENT: {name} ---\n{doc_text}\n--- END DOCUMENT ---\n\nUser question: {query}"
+                    );
+                    return (enriched, None);
+                }
+                return (format!("Attached file: {name}\n\n{query}"), Some(path.as_str()));
+            }
+            (query.to_string(), None)
+        }
+        Some(ChatContext::Window { app_name, title, url }) if first => (
+            format!("{}\n\n{query}", chat::window_line(app_name, title, url.as_deref())),
+            None,
+        ),
+        _ => (query.to_string(), None),
+    }
+}
+
+fn build_prompt(system: &str, history: &[Value], user_turn_text: &str) -> String {
     let mut out = String::new();
     out.push_str("[System instructions: ");
     out.push_str(system);
     out.push_str(
-        " Answer the user directly in concise Markdown without invoking file/shell tools unless explicitly asked.]\n\n",
+        " When the user provides an attached document, carefully read its content and answer their questions accurately based on the document. Answer directly in concise Markdown without invoking file/shell tools unless explicitly asked.]\n\n",
     );
 
     if !history.is_empty() {
@@ -244,16 +392,8 @@ fn build_prompt(
         }
     }
 
-    let user_part = match context.filter(|_| first) {
-        Some(ChatContext::Window { app_name, title, url }) => {
-            format!("{}\n\n{query}", chat::window_line(app_name, title, url.as_deref()))
-        }
-        Some(ChatContext::File { name, .. }) => format!("Attached file: {name}\n\n{query}"),
-        None => query.to_string(),
-    };
-
     out.push_str("User: ");
-    out.push_str(&user_part);
+    out.push_str(user_turn_text);
     out
 }
 
@@ -382,16 +522,14 @@ pub async fn send(
     context: Option<ChatContext>,
 ) -> Result<ChatReply, String> {
     let exe = find_binary().ok_or_else(|| {
-        t("OpenCode is not installed. Install it at ~/.opencode/bin/opencode first.")
+        "OpenCode is not installed. Install it at ~/.opencode/bin/opencode first.".to_string()
     })?;
 
     let turn = chat.begin(chat::OPENCODE);
     let system = chat::system_prompt(false);
-    let prompt = build_prompt(&system, &turn.history, turn.first, context.as_ref(), &query);
-    let attached_file = match context.as_ref().filter(|_| turn.first) {
-        Some(ChatContext::File { path, .. }) => Some(path.as_str()),
-        _ => None,
-    };
+    let (user_turn_text, attached_file) =
+        build_user_turn(&turn.history, turn.first, context.as_ref(), &query);
+    let prompt = build_prompt(&system, &turn.history, &user_turn_text);
 
     let chosen_model = resolve_model(model);
     let mut answer = run_once(&exe, &chosen_model, &prompt, attached_file, |visible| {
@@ -413,7 +551,7 @@ pub async fn send(
     let plain = chat::plain_question(turn.first, context.as_ref(), &query);
     chat.commit(
         &turn,
-        json!({ "role": "user", "content": plain }),
+        json!({ "role": "user", "content": user_turn_text }),
         json!({ "role": "assistant", "content": answer }),
         &plain,
         &answer,

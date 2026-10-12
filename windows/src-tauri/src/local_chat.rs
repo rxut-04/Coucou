@@ -203,7 +203,13 @@ fn parse_models(body: &Value) -> Option<Vec<String>> {
 /// else by name only.
 fn file_note(name: &str, path: &str) -> String {
     let ext = std::path::Path::new(path).extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
-    let binary = matches!(ext.as_str(), "pdf" | "jpg" | "jpeg" | "png" | "gif" | "webp");
+    if ext == "pdf" || ext == "docx" {
+        if let Some(doc_text) = crate::opencode_chat::extract_document_text(path) {
+            return format!("File: {name}\nFile contents:\n{doc_text}");
+        }
+        return format!("File: {name}");
+    }
+    let binary = matches!(ext.as_str(), "jpg" | "jpeg" | "png" | "gif" | "webp");
     // Read no more than the inline limit can use (4 bytes per character at most).
     let text = if binary { None } else { read_prefix(path, MAX_INLINE_CHARS * 4) };
     match text {

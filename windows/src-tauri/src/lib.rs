@@ -507,6 +507,20 @@ fn ingest_file(path: String) -> Result<DroppedFile, String> {
     files::ingest(&path)
 }
 
+/// Copies uploaded file bytes (from an HTML5 drop or file input) into the inbox.
+#[tauri::command]
+fn ingest_file_bytes(name: String, bytes: Vec<u8>) -> Result<DroppedFile, String> {
+    files::ingest_bytes(&name, &bytes)
+}
+
+/// Opens a native file chooser dialog and copies the selected file into the inbox.
+#[tauri::command]
+async fn pick_chat_file() -> Result<Option<DroppedFile>, String> {
+    tauri::async_runtime::spawn_blocking(files::pick_file)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 /// The island may only ask whether a key exists — never read it.
 #[tauri::command]
 fn secret_present(key: String) -> bool {
@@ -732,6 +746,8 @@ pub fn run() {
             local_set_key,
             chat_reset,
             ingest_file,
+            ingest_file_bytes,
+            pick_chat_file,
             secret_present,
             secret_set,
             secret_clear,

@@ -52,9 +52,23 @@ function typingDots(): HTMLElement {
   );
 }
 
-/** The coloured chip showing what the question is about (a dropped file). */
-function contextChip(label: string): HTMLElement {
-  const chip = h("div", { class: "chip" }, h("i", { class: "chip-dot" }), h("span", { text: label }));
+/** The coloured chip showing what the question is about (a dropped/uploaded file). */
+function contextChip(label: string, onRemove?: () => void): HTMLElement {
+  const removeBtn = onRemove
+    ? h(
+        "button",
+        {
+          class: "chip-remove",
+          title: tl("Cancel"),
+          onclick: (e: Event) => {
+            e.stopPropagation();
+            onRemove();
+          },
+        },
+        svg(ICONS.xmark, 9),
+      )
+    : null;
+  const chip = h("div", { class: "chip" }, h("i", { class: "chip-dot" }), h("span", { text: label }), removeBtn);
   requestAnimationFrame(() => chip.classList.add("settled"));
   return chip;
 }
@@ -204,6 +218,11 @@ function buildPicker(onChange: () => void): Picker {
 export function buildPrompt(onHeightChange: () => void): ViewHost {
   const chipRow = h("div", { class: "chip-row" });
   const log = h("div", { class: "chat-log" });
+  const attachBtn = h(
+    "button",
+    { class: "attach-btn", title: "Attach document (PDF, Docs, Code, Text)" },
+    svg(ICONS.plus, 11),
+  );
   const input = h("input", {
     type: "text",
     class: "chat-input",
@@ -211,7 +230,7 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
     spellcheck: "false",
   }) as HTMLInputElement;
   const send = h("button", { class: "send-btn", title: tl(STRINGS.send) }, svg(ICONS.arrowUp, 11));
-  const bar = h("div", { class: "chat-bar" }, input, send);
+  const bar = h("div", { class: "chat-bar" }, attachBtn, input, send);
 
   const modelDot = h("i", { class: "model-dot" });
   const modelName = h("span", { class: "model-name" });
@@ -235,6 +254,7 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
   (el.querySelector(".card") as HTMLElement).style.setProperty("--wash", "rgba(99,102,241,0.5)");
 
   let sending = false;
+  let pickingFile = false;
   let renderedCount = -1;
   // A local model answers token by token: where its text so far is shown.
   let live: HTMLElement | null = null;
@@ -248,6 +268,28 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
     modelBtn.classList.toggle("open", picker.isOpen);
     modelBtn.disabled = sending;
   }
+
+  attachBtn.addEventListener("click", async () => {
+    if (sending || pickingFile) return;
+    pickingFile = true;
+    const wasPinned = State.isPinned;
+    State.isPinned = true;
+    try {
+      const picked = await Bridge.pickChatFile();
+      if (picked) {
+        State.droppedFile = { name: picked.name, path: picked.path };
+        State.promptContext = { kind: "file", name: picked.name, path: picked.path };
+        Sound.play("pop");
+        State.notify();
+        onHeightChange();
+      }
+    } finally {
+      pickingFile = false;
+      State.isPinned = wasPinned;
+      void Bridge.focusWindow(true);
+      input.focus();
+    }
+  });
 
   modelBtn.addEventListener("click", () => {
     if (sending) return;
@@ -281,8 +323,9 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
     onHeightChange();
 
     const file = State.droppedFile;
-    const context: ChatContext | null =
-      State.chatHistory.length === 1 && file ? { kind: "file", name: file.name, path: file.path } : null;
+    const context: ChatContext | null = file
+      ? { kind: "file", name: file.name, path: file.path }
+      : null;
 
     try {
       const reply = await Bridge.chatSend(query, context);
@@ -326,7 +369,17 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
       if (chipRow.dataset.label !== wantChip) {
         chipRow.dataset.label = wantChip;
         clear(chipRow);
-        if (wantChip) chipRow.append(contextChip(wantChip));
+        if (wantChip) {
+          chipRow.append(
+            contextChip(wantChip, () => {
+              State.droppedFile = null;
+              State.promptContext = null;
+              Sound.play("blip");
+              State.notify();
+              onHeightChange();
+            }),
+          );
+        }
       }
 
       const thinking = State.stateOverride === "thinking";

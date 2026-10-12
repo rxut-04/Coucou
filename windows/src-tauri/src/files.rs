@@ -66,9 +66,16 @@ pub fn ingest(source: &str) -> Result<DroppedFile, String> {
     if !take_dropped(source) {
         return Err(crate::i18n::t("Only files dropped on the island can be added."));
     }
-    let src = Path::new(source);
-    let meta = std::fs::metadata(src)
-        .map_err(|e| crate::i18n::tf("Cannot read {path}: {error}", &[("path", source), ("error", &e.to_string())]))?;
+    ingest_trusted(Path::new(source), source)
+}
+
+pub fn ingest_trusted(src: &Path, display_source: &str) -> Result<DroppedFile, String> {
+    let meta = std::fs::metadata(src).map_err(|e| {
+        crate::i18n::tf(
+            "Cannot read {path}: {error}",
+            &[("path", display_source), ("error", &e.to_string())],
+        )
+    })?;
     if meta.is_dir() {
         return Err(crate::i18n::t("Folders can't be dropped yet."));
     }
@@ -82,20 +89,10 @@ pub fn ingest(source: &str) -> Result<DroppedFile, String> {
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| "file".into());
 
-    let mut dest = dir.join(&name);
-    if dest.exists() {
-        let stem = src.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-        let ext = src.extension().map(|s| format!(".{}", s.to_string_lossy())).unwrap_or_default();
-        for i in 2..1000 {
-            let candidate = dir.join(format!("{stem} ({i}){ext}"));
-            if !candidate.exists() {
-                dest = candidate;
-                break;
-            }
-        }
-    }
+    let dest = unique_dest(&dir, &name);
 
-    std::fs::copy(src, &dest).map_err(|e| crate::i18n::tf("Cannot copy: {error}", &[("error", &e.to_string())]))?;
+    std::fs::copy(src, &dest)
+        .map_err(|e| crate::i18n::tf("Cannot copy: {error}", &[("error", &e.to_string())]))?;
     // CopyFileEx carries the source's timestamps across, so a file last edited
     // three years ago would arrive already older than the sweep window and be
     // deleted on the spot. The inbox ages from when *we* copied it.
@@ -109,6 +106,84 @@ pub fn ingest(source: &str) -> Result<DroppedFile, String> {
         path: dest.to_string_lossy().to_string(),
         size: meta.len(),
     })
+}
+
+pub fn ingest_bytes(raw_name: &str, bytes: &[u8]) -> Result<DroppedFile, String> {
+    let dir = inbox_dir();
+    crate::platform::ensure_private_dir(&settings::local_dir()).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+
+    let name = Path::new(raw_name)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .filter(|n| !n.trim().is_empty())
+        .unwrap_or_else(|| "document.txt".into());
+
+    let dest = unique_dest(&dir, &name);
+    std::fs::write(&dest, bytes)
+        .map_err(|e| crate::i18n::tf("Cannot copy: {error}", &[("error", &e.to_string())]))?;
+    sweep(&dir);
+
+    Ok(DroppedFile {
+        name,
+        path: dest.to_string_lossy().to_string(),
+        size: bytes.len() as u64,
+    })
+}
+
+fn unique_dest(dir: &Path, name: &str) -> PathBuf {
+    let src = Path::new(name);
+    let mut dest = dir.join(name);
+    if dest.exists() {
+        let stem = src.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+        let ext = src.extension().map(|s| format!(".{}", s.to_string_lossy())).unwrap_or_default();
+        for i in 2..1000 {
+            let candidate = dir.join(format!("{stem} ({i}){ext}"));
+            if !candidate.exists() {
+                dest = candidate;
+                break;
+            }
+        }
+    }
+    dest
+}
+
+/// Opens the native OS file picker dialog (kdialog / zenity on Linux) and copies
+/// the chosen file into Coucou's inbox. Returns `Ok(None)` if cancelled.
+pub fn pick_file() -> Result<Option<DroppedFile>, String> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+
+    if let Ok(out) = std::process::Command::new("kdialog")
+        .arg("--getopenfilename")
+        .arg(&home)
+        .arg("--title")
+        .arg("Coucou — Select a file")
+        .output()
+    {
+        if out.status.success() {
+            let picked = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !picked.is_empty() {
+                return ingest_trusted(Path::new(&picked), &picked).map(Some);
+            }
+        }
+        return Ok(None);
+    }
+
+    if let Ok(out) = std::process::Command::new("zenity")
+        .arg("--file-selection")
+        .arg("--title=Coucou — Select a file")
+        .output()
+    {
+        if out.status.success() {
+            let picked = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !picked.is_empty() {
+                return ingest_trusted(Path::new(&picked), &picked).map(Some);
+            }
+        }
+        return Ok(None);
+    }
+
+    Ok(None)
 }
 
 /// Drops anything copied here more than a week ago. `ingest` stamps every copy

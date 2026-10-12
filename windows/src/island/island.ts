@@ -257,6 +257,7 @@ export class Island {
     const actions: ViewActions = {
       setView: (v) => this.setView(v),
       cancelDrop: () => this.discardDrop(),
+      pickFile: () => void this.pickAndSwallowFile(),
       collapse: () => this.collapse(),
       foldApproval: () => this.foldApproval(),
       setFocus: (id) => {
@@ -714,6 +715,45 @@ export class Island {
         this.swallow(path);
         break;
       }
+    }
+  }
+
+  /**
+   * Opens the native OS file chooser from the Upload tab, pins the island while
+   * the dialog is open, and runs Mochi's swallow/upload sequence on the chosen file.
+   */
+  private async pickAndSwallowFile() {
+    const wasPinned = State.isPinned;
+    this.setPinned(true);
+    try {
+      const picked = await Bridge.pickChatFile();
+      if (!picked) {
+        this.setPinned(wasPinned);
+        return;
+      }
+      State.droppedFile = { name: picked.name, path: picked.path };
+      State.promptContext = { kind: "file", name: picked.name, path: picked.path };
+      State.chatHistory = [];
+      void Bridge.chatReset();
+
+      UploadSeq.enterZone(State.mouseInIsland.x, State.mouseInIsland.y);
+      UploadSeq.performDrop(State.uploadDuration);
+      this.uploadTens = 0;
+      this.uploadDone = false;
+
+      this.engine.gulp();
+      Sound.play("approve");
+      this.engine.triggerEmote("happy");
+      this.engine.animateMorph(0);
+
+      State.uploadProgress = 0;
+      this.setView("uploading");
+      this.ensureRunning();
+    } catch (err) {
+      this.setPinned(wasPinned);
+      State.noteMessage = String(err).replace(/^Error:\s*/, "");
+      this.setView("note");
+      Sound.play("error");
     }
   }
 

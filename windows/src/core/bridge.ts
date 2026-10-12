@@ -151,6 +151,11 @@ export const Bridge = {
     callOrThrow<LocalServer>("local_connect", { provider, url }),
   /** Copies a dropped file into the inbox. */
   ingestFile: (path: string) => callOrThrow<DroppedFile>("ingest_file", { path }),
+  /** Copies uploaded file bytes (from an HTML5 drop or file input) into the inbox. */
+  ingestFileBytes: (name: string, bytes: number[]) =>
+    callOrThrow<DroppedFile>("ingest_file_bytes", { name, bytes }),
+  /** Opens a native file chooser dialog and copies the chosen file into the inbox. */
+  pickChatFile: () => call<DroppedFile | null>("pick_chat_file"),
   /** Only ever tells you whether a key exists — never its value. */
   secretPresent: (key: string) => call<boolean>("secret_present", { key }),
   secretSet: (key: string, value: string) => callOrThrow<void>("secret_set", { key, value }),
