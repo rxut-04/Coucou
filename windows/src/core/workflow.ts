@@ -156,8 +156,47 @@ class WorkflowEngine {
     await Promise.all([
       this.refreshBatteryStatus(),
       this.refreshBluetoothStatus(),
+      this.refreshWeatherStatus(),
       this.refreshMediaStatus(),
     ]);
+  }
+
+  async refreshWeatherStatus() {
+    const wx = await Bridge.weatherStatusGet();
+    if (!wx) return;
+    const prev = State.weatherStatus;
+    const changed =
+      !prev ||
+      prev.tempC !== wx.tempC ||
+      prev.condition !== wx.condition ||
+      prev.location !== wx.location ||
+      prev.humidity !== wx.humidity ||
+      prev.uvIndex !== wx.uvIndex;
+    State.weatherStatus = wx;
+    if (changed) {
+      State.notify();
+    }
+  }
+
+  toggleWeatherCard() {
+    State.showingWeatherCard = !State.showingWeatherCard;
+    if (State.showingWeatherCard) {
+      State.selectedWeatherDayIdx = 0;
+      State.showingMorningRecap = false;
+      State.showingDailyGoalsCard = false;
+      State.showingHealthCard = false;
+      State.showingStatsCard = false;
+      State.showingFocusTimerCard = false;
+      void this.refreshWeatherStatus();
+    }
+    Sound.play("blip");
+    State.notify();
+  }
+
+  selectWeatherDay(idx: number) {
+    State.selectedWeatherDayIdx = Math.max(0, Math.min(3, idx));
+    Sound.play("blip");
+    State.notify();
   }
 
   async refreshBatteryStatus() {
@@ -245,6 +284,7 @@ class WorkflowEngine {
       State.showingDailyGoalsCard = false;
       State.showingHealthCard = false;
       State.showingFocusTimerCard = false;
+      State.showingWeatherCard = false;
       void this.refreshStatsDashboard();
     }
     Sound.play("blip");
@@ -294,6 +334,7 @@ class WorkflowEngine {
       State.showingDailyGoalsCard = false;
       State.showingStatsCard = false;
       State.showingFocusTimerCard = false;
+      State.showingWeatherCard = false;
       void Bridge.healthModeStatus().then((snap) => {
         if (snap) {
           State.healthStatus = snap;
@@ -429,6 +470,7 @@ class WorkflowEngine {
       State.showingHealthCard = false;
       State.showingStatsCard = false;
       State.showingFocusTimerCard = false;
+      State.showingWeatherCard = false;
       void Bridge.dailyGoalsList().then((goals) => {
         if (goals) {
           State.dailyGoals = goals;
@@ -454,6 +496,7 @@ class WorkflowEngine {
       State.showingHealthCard = false;
       State.showingStatsCard = false;
       State.showingFocusTimerCard = false;
+      State.showingWeatherCard = false;
       State.showingMorningRecap = true;
       Sound.play("peek");
       State.notify();
@@ -769,6 +812,7 @@ class WorkflowEngine {
       State.showingDailyGoalsCard = false;
       State.showingHealthCard = false;
       State.showingStatsCard = false;
+      State.showingWeatherCard = false;
     }
     Sound.play("blip");
     State.notify();
@@ -811,6 +855,7 @@ class WorkflowEngine {
     State.showingDailyGoalsCard = false;
     State.showingHealthCard = false;
     State.showingStatsCard = false;
+    State.showingWeatherCard = false;
     State.lastWorkflowDetail = `⏱ Focus ${formatMmSs(targetSecs)} · ${taskTitle}`;
     Sound.play("peek");
     State.notify();

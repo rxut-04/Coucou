@@ -24,6 +24,7 @@ import {
   type MorningRecapData,
   type StatsDashboardData,
   type TaskRecord,
+  type WeatherStatus,
   type WeeklyAgentWaitStats,
 } from "./bridge";
 
@@ -543,6 +544,12 @@ class AppState {
   showingStatsCard = false;
   /** Whether the Pomodoro / Focus Timer control card is open in the main left card. */
   showingFocusTimerCard = false;
+  /** Whether the Animated Weather Forecast card is open in the main left card. */
+  showingWeatherCard = false;
+  /** Which day index (0..3) is selected in the Weather Forecast card. */
+  selectedWeatherDayIdx = 0;
+  /** Live weather & 4-day forecast status. */
+  weatherStatus: WeatherStatus | null = null;
   /** Live battery & charging status (/sys/class/power_supply). */
   batteryStatus: BatteryStatus | null = null;
   /** Live connected Bluetooth device & battery status (BlueZ DBus). */

@@ -823,6 +823,7 @@ pub fn run() {
             health_mode::health_mode_acknowledge,
             system_media::battery_status_get,
             system_media::bluetooth_status_get,
+            system_media::weather_status_get,
             system_media::media_status_get,
             system_media::media_control,
         ])

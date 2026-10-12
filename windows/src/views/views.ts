@@ -405,6 +405,21 @@ export function buildHeader(actions: ViewActions): ViewHost {
     statsPillLabel,
   );
 
+  // ── Live Weather Forecast Pill ("⛅ 34° · Clouds")
+  const weatherPillLabel = h("span", { class: "p3-wx-label", text: "⛅ 34°" });
+  const weatherPill = h(
+    "button",
+    {
+      class: "p3-pill p3-wx-pill",
+      title: "Click to open animated Weather & 4-Day Forecast in main pill",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        Workflow.toggleWeatherCard();
+      },
+    },
+    weatherPillLabel,
+  );
+
   // ── Bluetooth Connected Pill ("🎧 Noise Pop Buds · 85%")
   const bluetoothPillLabel = h("span", { class: "p3-bt-label", text: "🎧 Connected" });
   const bluetoothPill = h(
@@ -429,6 +444,7 @@ export function buildHeader(actions: ViewActions): ViewHost {
     "div",
     { class: "phase3-bar" },
     taskPillEl,
+    weatherPill,
     bluetoothPill,
     dailyGoalsPill,
     morningRecapBtn,
@@ -495,6 +511,15 @@ export function buildHeader(actions: ViewActions): ViewHost {
       statsPill.title = `Daily Score: ${sd.dailyScore}/100 · ${sd.levelTitle} (${sd.totalXp} XP) · Streak: ${sd.streakDays}d\n${sd.formulaDoc}`;
     } else {
       statsPillLabel.textContent = "🏆 Stats";
+    }
+
+    const wx = State.weatherStatus;
+    weatherPill.classList.toggle("active", State.showingWeatherCard);
+    if (wx) {
+      weatherPillLabel.textContent = `⛅ ${wx.tempC}° · ${wx.condition}`;
+      weatherPill.title = `${wx.location}: ${wx.tempC}°C (${wx.condition}) · Humidity ${wx.humidity}% · Wind ${wx.windMs} m/s — Click for 4-Day Forecast`;
+    } else {
+      weatherPillLabel.textContent = "⛅ 34° · Clouds";
     }
 
     const bt = State.bluetoothStatus;
@@ -717,6 +742,7 @@ function buildOverview(actions: ViewActions): ViewHost {
     | "health"
     | "stats"
     | "focustimer"
+    | "weather"
     | "media"
     | null = null;
   let cardKey = "";
@@ -826,6 +852,10 @@ function buildOverview(actions: ViewActions): ViewHost {
         mode = null;
         cardKey = "";
       }
+      if (mode === "weather" && !State.showingWeatherCard) {
+        mode = null;
+        cardKey = "";
+      }
       if (mode === "media" && !shouldShowBrowserMediaCard(task)) {
         mode = null;
         cardKey = "";
@@ -838,6 +868,17 @@ function buildOverview(actions: ViewActions): ViewHost {
           mode = "plan";
         }
         plan.sync();
+      } else if (State.showingWeatherCard) {
+        const wx = State.weatherStatus;
+        const selIdx = State.selectedWeatherDayIdx;
+        const key = `weather~${wx?.location ?? ""}~${wx?.tempC ?? 34}~${wx?.condition ?? ""}~${wx?.humidity ?? 59}~${selIdx}`;
+        if (key !== cardKey) {
+          const animateEntrance = mode !== "weather";
+          cardKey = key;
+          mode = "weather";
+          clear(leftBody);
+          leftBody.append(renderWeatherCard(animateEntrance));
+        }
       } else if (State.showingFocusTimerCard) {
         if (mode !== "focustimer") {
           clear(leftBody);
@@ -1598,6 +1639,180 @@ function renderStatsDashboardCard(sd: import("../core/bridge").StatsDashboardDat
             }),
           ),
         ),
+      ),
+    ),
+  );
+}
+
+function renderWeather3dSvg(kind: string, variant: "hero" | "forecast", uid: string): HTMLElement {
+  const wrap = h("div", { class: `wx-svg-wrap wx-svg-${variant} wx-kind-${kind}` });
+  const w = variant === "hero" ? 48 : 34;
+  const ht = variant === "hero" ? 32 : 30;
+
+  if (variant === "hero" || kind === "clouds") {
+    wrap.innerHTML = `<svg class="wx-svg" viewBox="0 0 56 38" width="${w}" height="${ht}" aria-hidden="true">
+      <defs>
+        <linearGradient id="wxCloudMain_${uid}" x1="20%" y1="10%" x2="80%" y2="95%">
+          <stop offset="0%" stop-color="#ffffff"/>
+          <stop offset="55%" stop-color="#e8f3ff"/>
+          <stop offset="100%" stop-color="#b9d8fa"/>
+        </linearGradient>
+        <linearGradient id="wxCloudBack_${uid}" x1="15%" y1="0%" x2="85%" y2="100%">
+          <stop offset="0%" stop-color="#f0f7ff"/>
+          <stop offset="100%" stop-color="#9ec5f0"/>
+        </linearGradient>
+      </defs>
+      ${
+         variant === "forecast"
+          ? `<g class="wx-cloud-back">
+              <path d="M22 25H46C49.9 25 53 21.9 53 18C53 14.4 50.3 11.4 46.8 11C45.4 6.4 41.1 3 36 3C30.2 3 25.4 7.3 24.6 12.9C20.9 13.4 18 16.6 18 20.5C18 23 19.8 25 22 25Z" fill="url(#wxCloudBack_${uid})" opacity="0.88"/>
+            </g>`
+          : ""
+      }
+      <g class="wx-cloud-front">
+        <path d="M14 32H41C46.5 32 51 27.5 51 22C51 16.9 47.2 12.7 42.2 12.1C40.3 6.2 34.8 2 28.2 2C20.4 2 14 8 13.3 15.6C8.6 16.3 5 20.3 5 25.2C5 29 8.1 32 14 32Z" fill="url(#wxCloudMain_${uid})"/>
+      </g>
+    </svg>`;
+    return wrap;
+  }
+
+  // "sun_rain" / "sun" / "storm" 3D icon (golden sun + glossy 3D cloud + animated blue raindrop)
+  wrap.innerHTML = `<svg class="wx-svg" viewBox="0 0 48 44" width="${w}" height="${ht}" aria-hidden="true">
+    <defs>
+      <radialGradient id="wxSun_${uid}" cx="38%" cy="35%" r="65%">
+        <stop offset="0%" stop-color="#fde047"/>
+        <stop offset="55%" stop-color="#facc15"/>
+        <stop offset="100%" stop-color="#eab308"/>
+      </radialGradient>
+      <linearGradient id="wxCloud_${uid}" x1="20%" y1="10%" x2="80%" y2="95%">
+        <stop offset="0%" stop-color="#ffffff"/>
+        <stop offset="60%" stop-color="#e6f2ff"/>
+        <stop offset="100%" stop-color="#b5d6fa"/>
+      </linearGradient>
+      <linearGradient id="wxDrop_${uid}" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#60a5fa"/>
+        <stop offset="100%" stop-color="#2563eb"/>
+      </linearGradient>
+    </defs>
+    <circle class="wx-sun-disc" cx="23" cy="14" r="10.5" fill="url(#wxSun_${uid})"/>
+    <g class="wx-cloud-front">
+      <path d="M12 31H35.5C39.9 31 43.5 27.4 43.5 23C43.5 18.9 40.4 15.6 36.4 15.1C34.9 10.4 30.5 7 25.2 7C19 7 13.9 11.8 13.3 17.8C9.5 18.4 6.5 21.6 6.5 25.5C6.5 28.6 9 31 12 31Z" fill="url(#wxCloud_${uid})"/>
+    </g>
+    <path class="wx-rain-drop" d="M24 32.2C24 32.2 20.3 36.8 20.3 39.1C20.3 41.1 21.9 42.7 24 42.7C26.1 42.7 27.7 41.1 27.7 39.1C27.7 36.8 24 32.2 24 32.2Z" fill="url(#wxDrop_${uid})"/>
+  </svg>`;
+  return wrap;
+}
+
+function renderWeatherCard(animateEntrance = true): HTMLElement {
+  const wx = State.weatherStatus ?? {
+    location: "Pune, India",
+    dayFull: "Thursday",
+    dateLabel: "15, Sep",
+    tempC: 34,
+    condition: "Clouds",
+    iconKind: "clouds",
+    uvIndex: 0,
+    humidity: 59,
+    windMs: 2.0,
+    forecast: [
+      { dayShort: "Thu", dayFull: "Thursday", dateLabel: "15, Sep", tempC: 32, condition: "Clouds", iconKind: "sun_rain", uvIndex: 0, humidity: 59, windMs: 2.0 },
+      { dayShort: "Fri", dayFull: "Friday", dateLabel: "16, Sep", tempC: 27, condition: "Rain Showers", iconKind: "sun_rain", uvIndex: 2, humidity: 68, windMs: 2.8 },
+      { dayShort: "Sat", dayFull: "Saturday", dateLabel: "17, Sep", tempC: 27, condition: "Partly Cloudy", iconKind: "sun_rain", uvIndex: 3, humidity: 64, windMs: 2.4 },
+      { dayShort: "Sun", dayFull: "Sunday", dateLabel: "18, Sep", tempC: 29, condition: "Clouds", iconKind: "clouds", uvIndex: 1, humidity: 56, windMs: 1.9 },
+    ],
+  };
+
+  const selIdx = Math.max(0, Math.min(wx.forecast.length - 1, State.selectedWeatherDayIdx));
+  const activeDay = wx.forecast[selIdx];
+
+  const heroDayFull = selIdx === 0 ? wx.dayFull : activeDay?.dayFull || wx.dayFull;
+  const heroDateLabel = selIdx === 0 ? wx.dateLabel : activeDay?.dateLabel || wx.dateLabel;
+  const heroTemp = selIdx === 0 ? wx.tempC : activeDay?.tempC ?? wx.tempC;
+  const heroCond = selIdx === 0 ? wx.condition : activeDay?.condition || wx.condition;
+  const heroUv = selIdx === 0 ? wx.uvIndex : activeDay?.uvIndex ?? wx.uvIndex;
+  const heroHumidity = selIdx === 0 ? wx.humidity : activeDay?.humidity ?? wx.humidity;
+  const heroWind = selIdx === 0 ? wx.windMs : activeDay?.windMs ?? wx.windMs;
+
+  const forecastPills = wx.forecast.slice(0, 4).map((d, idx) =>
+    h(
+      "button",
+      {
+        class: `wx-day-pill${idx === selIdx ? " active" : ""}`,
+        style: `animation-delay: ${110 + idx * 55}ms`,
+        title: `${d.dayFull} (${d.dateLabel}): ${d.tempC}°C · ${d.condition}`,
+        onclick: (e: Event) => {
+          e.stopPropagation();
+          Workflow.selectWeatherDay(idx);
+        },
+      },
+      h("span", { class: "wx-day-name", text: d.dayShort }),
+      renderWeather3dSvg(d.iconKind, "forecast", `d${idx}`),
+      h("span", { class: "wx-day-temp", text: `${d.tempC}°` }),
+    ),
+  );
+
+  return h(
+    "div",
+    { class: `int-card wf-card wx-card${animateEntrance ? " wx-enter" : ""}` },
+    h(
+      "button",
+      {
+        class: "p3-btn wx-close-btn",
+        title: "Close Weather card",
+        onclick: (e: Event) => {
+          e.stopPropagation();
+          Workflow.toggleWeatherCard();
+        },
+      },
+      h("span", { text: "✕" }),
+    ),
+    h(
+      "div",
+      { class: "wx-card-grid" },
+      h(
+        "div",
+        { class: "wx-left-col" },
+        h(
+          "div",
+          { class: "wx-date-loc" },
+          h("div", { class: "wx-day-full", text: heroDayFull }),
+          h("div", { class: "wx-date-str", text: heroDateLabel }),
+          h("div", { class: "wx-location", text: wx.location }),
+        ),
+        h(
+          "div",
+          { class: "wx-hero" },
+          renderWeather3dSvg("clouds", "hero", "hero"),
+          h("div", { class: "wx-hero-temp", text: `${heroTemp}°` }),
+          h("div", { class: "wx-hero-cond", text: heroCond }),
+        ),
+      ),
+      h(
+        "div",
+        { class: "wx-right-col" },
+        h(
+          "div",
+          { class: "wx-metrics" },
+          h(
+            "div",
+            { class: "wx-metric-row" },
+            h("span", { class: "wx-metric-lbl", text: "UV INDEX" }),
+            h("span", { class: "wx-metric-val", text: `${heroUv}` }),
+          ),
+          h(
+            "div",
+            { class: "wx-metric-row" },
+            h("span", { class: "wx-metric-lbl", text: "HUMIDITY" }),
+            h("span", { class: "wx-metric-val", text: `${heroHumidity}%` }),
+          ),
+          h(
+            "div",
+            { class: "wx-metric-row" },
+            h("span", { class: "wx-metric-lbl", text: "WIND" }),
+            h("span", { class: "wx-metric-val", text: `${heroWind} m/s` }),
+          ),
+        ),
+        h("div", { class: "wx-forecast-row" }, ...forecastPills),
       ),
     ),
   );

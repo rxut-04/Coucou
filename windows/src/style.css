@@ -4008,3 +4008,269 @@ html[data-dir="rtl"] #views :is(.bubble, .reply .md-p, .reply .md-h, .reply .md-
   color: #f4505e;
 }
 
+/* ── Live Weather Badge & Animated Weather Main Pill Card (.wx-card) ─────── */
+
+.p3-wx-pill {
+  cursor: pointer;
+}
+
+.p3-wx-pill.active {
+  border-color: rgba(96, 165, 250, 0.68) !important;
+  background: rgba(59, 130, 246, 0.18) !important;
+  color: #dbeafe !important;
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.25);
+}
+
+.int-card.wf-card.wx-card {
+  position: relative;
+  padding: 12px 16px 12px var(--card-left-pad, 122px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.wx-card.wx-enter {
+  animation: wx-card-in 0.38s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes wx-card-in {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+    filter: blur(2px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0px);
+  }
+}
+
+.wx-close-btn {
+  position: absolute;
+  top: 7px;
+  right: 8px;
+  z-index: 3;
+  opacity: 0.65;
+}
+
+.wx-close-btn:hover {
+  opacity: 1;
+}
+
+.wx-card-grid {
+  display: grid;
+  grid-template-columns: minmax(112px, 0.9fr) minmax(185px, 1.35fr);
+  gap: 16px;
+  align-items: stretch;
+  width: 100%;
+}
+
+.wx-left-col {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.wx-date-loc {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5px;
+  animation: wx-slide-up 0.36s cubic-bezier(0.22, 1, 0.36, 1) 0.03s both;
+}
+
+.wx-day-full {
+  font: 600 calc(13.5px * var(--size-font-scale, 1.28))/1.18 var(--font);
+  color: #ffffff;
+  letter-spacing: -0.01em;
+}
+
+.wx-date-str {
+  font: 500 calc(11px * var(--size-font-scale, 1.28))/1.2 var(--font);
+  color: #b4b9c3;
+}
+
+.wx-location {
+  font: 500 calc(11px * var(--size-font-scale, 1.28))/1.2 var(--font);
+  color: #d1d5db;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wx-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  animation: wx-slide-up 0.42s cubic-bezier(0.22, 1, 0.36, 1) 0.08s both;
+}
+
+.wx-hero-temp {
+  font: 500 calc(31px * var(--size-font-scale, 1.28))/1 var(--font);
+  font-variant-numeric: tabular-nums;
+  color: #ffffff;
+  letter-spacing: -0.03em;
+  margin-top: 1px;
+}
+
+.wx-hero-cond {
+  font: 500 calc(11.5px * var(--size-font-scale, 1.28))/1.2 var(--font);
+  color: #d1d5db;
+}
+
+.wx-right-col {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  padding-right: 12px;
+}
+
+.wx-metrics {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  animation: wx-slide-up 0.38s cubic-bezier(0.22, 1, 0.36, 1) 0.06s both;
+}
+
+.wx-metric-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  line-height: 1.2;
+}
+
+.wx-metric-lbl {
+  font: 600 calc(9.5px * var(--size-font-scale, 1.28))/1.15 var(--font);
+  color: #a3a8b3;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.wx-metric-val {
+  font: 600 calc(10px * var(--size-font-scale, 1.28))/1.15 var(--font);
+  font-variant-numeric: tabular-nums;
+  color: #f3f4f6;
+}
+
+.wx-forecast-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  align-items: stretch;
+}
+
+.wx-day-pill {
+  border: 1px solid transparent;
+  border-radius: 11px;
+  background: transparent;
+  padding: 6px 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  cursor: pointer;
+  color: #e5e7eb;
+  animation: wx-pill-pop 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+  transition:
+    background 0.22s cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 0.22s ease,
+    transform 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.22s ease;
+}
+
+.wx-day-pill:hover {
+  background: rgba(255, 255, 255, 0.08);
+  transform: translateY(-1.5px);
+}
+
+.wx-day-pill.active {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.14);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+.wx-day-name {
+  font: 500 calc(10px * var(--size-font-scale, 1.28))/1.1 var(--font);
+  color: #d1d5db;
+}
+
+.wx-day-pill.active .wx-day-name {
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.wx-day-temp {
+  font: 600 calc(10.5px * var(--size-font-scale, 1.28))/1.1 var(--font);
+  font-variant-numeric: tabular-nums;
+  color: #f3f4f6;
+}
+
+/* 3D Weather SVG Icons & Living Animations */
+.wx-svg-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.38));
+}
+
+.wx-svg-hero .wx-cloud-front {
+  animation: wx-cloud-drift 3.4s ease-in-out infinite;
+}
+
+.wx-svg-forecast .wx-cloud-front {
+  animation: wx-cloud-drift 3s ease-in-out infinite;
+}
+
+.wx-svg-forecast .wx-cloud-back {
+  animation: wx-cloud-drift-rev 3.6s ease-in-out infinite;
+}
+
+.wx-sun-disc {
+  transform-origin: 23px 14px;
+  animation: wx-sun-pulse 2.8s ease-in-out infinite;
+}
+
+.wx-rain-drop {
+  transform-origin: 24px 36px;
+  animation: wx-rain-fall 1.7s ease-in-out infinite;
+}
+
+@keyframes wx-cloud-drift {
+  0%, 100% { transform: translate(0px, 0px); }
+  50% { transform: translate(1.8px, -1.2px); }
+}
+
+@keyframes wx-cloud-drift-rev {
+  0%, 100% { transform: translate(0px, 0px); }
+  50% { transform: translate(-1.8px, 0.9px); }
+}
+
+@keyframes wx-sun-pulse {
+  0%, 100% { transform: scale(1); filter: brightness(1); }
+  50% { transform: scale(1.07); filter: brightness(1.12); }
+}
+
+@keyframes wx-rain-fall {
+  0%, 100% { transform: translateY(0px) scale(1); opacity: 0.95; }
+  50% { transform: translateY(1.8px) scale(0.94); opacity: 0.72; }
+}
+
+@keyframes wx-slide-up {
+  0% { opacity: 0; transform: translateY(6px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes wx-pill-pop {
+  0% { opacity: 0; transform: translateY(8px) scale(0.92); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+

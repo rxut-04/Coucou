@@ -292,9 +292,10 @@ export const Bridge = {
   reportLayoutMetrics: (metrics: Record<string, unknown>) =>
     call<void>("report_layout_metrics", { metrics }),
 
-  // ── Battery charging, Bluetooth & MPRIS/browser media playback (system_media.rs) ──
+  // ── Battery charging, Bluetooth, Weather & MPRIS/browser media playback (system_media.rs) ──
   batteryStatusGet: () => call<BatteryStatus>("battery_status_get"),
   bluetoothStatusGet: () => call<BluetoothStatus>("bluetooth_status_get"),
+  weatherStatusGet: () => call<WeatherStatus>("weather_status_get"),
   mediaStatusGet: () => call<MediaStatus>("media_status_get"),
   mediaControl: (action: string, value?: number) =>
     call<MediaStatus>("media_control", { action, value }),
@@ -324,6 +325,31 @@ export interface BluetoothStatus {
   primaryBattery: number;
   hasBatteryInfo: boolean;
   devices: BluetoothDeviceStatus[];
+}
+
+export interface WeatherForecastDay {
+  dayShort: string;
+  dayFull: string;
+  dateLabel: string;
+  tempC: number;
+  condition: string;
+  iconKind: string;
+  uvIndex: number;
+  humidity: number;
+  windMs: number;
+}
+
+export interface WeatherStatus {
+  location: string;
+  dayFull: string;
+  dateLabel: string;
+  tempC: number;
+  condition: string;
+  iconKind: string;
+  uvIndex: number;
+  humidity: number;
+  windMs: number;
+  forecast: WeatherForecastDay[];
 }
 
 export interface MediaStatus {
