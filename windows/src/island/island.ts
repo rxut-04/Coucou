@@ -41,7 +41,8 @@ const BOT_SIDE = 24;
 /** Same margin as the Rust hit test (src-tauri/src/island.rs). */
 const HIT_MARGIN = 14;
 /** Extra vertical space below compact bar when the separate charging bar is shown. */
-const CHARGING_BAR_EXTRA_H = 38;
+const CHARGING_BAR_EXTRA_H = 42;
+const CHARGING_TOAST_MS = 3000;
 
 /** The three views the drop sequence owns; leaving them stops the engine. */
 const UPLOAD_VIEWS: ReadonlySet<IslandViewName> = new Set(["upload", "uploading", "choose"]);
@@ -74,6 +75,10 @@ export class Island {
   private chargingPctEl!: HTMLElement;
   private chargingFillEl!: HTMLElement;
   private lastChargingVisible = false;
+  private lastChargerPlugged: boolean | null = null;
+  private chargingToastPending = false;
+  private chargingToastActive = false;
+  private chargingToastTimer: number | null = null;
   private countdown!: HTMLElement;
   private wakeStrip!: HTMLElement;
 
@@ -995,7 +1000,11 @@ export class Island {
   }
 
   private isChargingBarVisible(): boolean {
-    return State.mode === "compact" && Boolean(State.batteryStatus?.charging);
+    return (
+      State.mode === "compact" &&
+      Boolean(State.batteryStatus?.charging) &&
+      this.chargingToastActive
+    );
   }
 
   private scheduleWindowResize(targetW: number, targetH: number, collapseMs = 340) {
@@ -1683,9 +1692,45 @@ export class Island {
     this.engine.setState(State.effectiveState);
   }
 
+  private clearChargingToastTimer() {
+    if (this.chargingToastTimer != null) {
+      window.clearTimeout(this.chargingToastTimer);
+      this.chargingToastTimer = null;
+    }
+  }
+
   private syncChargingBar() {
     if (!this.chargingBarEl) return;
     const bat = State.batteryStatus;
+    const plugged = Boolean(bat?.charging);
+
+    if (plugged && this.lastChargerPlugged !== true) {
+      this.lastChargerPlugged = true;
+      this.chargingToastPending = true;
+    } else if (!plugged && this.lastChargerPlugged !== false) {
+      this.lastChargerPlugged = false;
+      this.chargingToastPending = false;
+      this.chargingToastActive = false;
+      this.clearChargingToastTimer();
+    }
+
+    if (State.mode === "compact") {
+      if (this.chargingToastPending && plugged) {
+        this.chargingToastPending = false;
+        this.chargingToastActive = true;
+        Sound.play("peek");
+        this.clearChargingToastTimer();
+        this.chargingToastTimer = window.setTimeout(() => {
+          this.chargingToastTimer = null;
+          this.chargingToastActive = false;
+          this.syncChargingBar();
+        }, CHARGING_TOAST_MS);
+      }
+    } else if (this.chargingToastActive) {
+      this.chargingToastActive = false;
+      this.clearChargingToastTimer();
+    }
+
     const visible = this.isChargingBarVisible();
     this.chargingBarEl.classList.toggle("on", visible);
     if (bat) {
@@ -1703,7 +1748,7 @@ export class Island {
     if (visible !== this.lastChargingVisible) {
       this.lastChargingVisible = visible;
       const { w, h } = this.targetSize();
-      this.scheduleWindowResize(w, h, 200);
+      this.scheduleWindowResize(w, h, visible ? 0 : 400);
       this.applyGeometry();
     }
   }

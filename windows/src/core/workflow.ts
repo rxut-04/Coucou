@@ -827,9 +827,7 @@ class WorkflowEngine {
   }
 
   private tickSystemMedia() {
-    if (this.agentPollCounter % 2 === 0) {
-      void this.refreshBatteryStatus();
-    }
+    void this.refreshBatteryStatus();
     const isBrowserFocused =
       State.focusTask?.name === "Browser" ||
       (State.focusTask?.windowClass || "").toLowerCase().includes("brave") ||
