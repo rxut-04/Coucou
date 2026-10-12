@@ -4,7 +4,7 @@
 import { Tracked, Spring, clamp } from "../core/anim";
 import { Bridge, IS_TAURI, onDragDrop } from "../core/bridge";
 import {
-  EXPANDED_CORNER, EXPANDED_W, NOTCH_W, PANEL_H, PANEL_W,
+  EXPANDED_CORNER, NOTCH_W, PANEL_H, PANEL_W,
   ROUNDED_CORNER, VIEW_LAYOUTS, botGlowColor, botGlowOpacity, botPosition, chatPromptHeight,
   islandSize,
   QUESTION_PICKER_H,
@@ -19,7 +19,7 @@ import {
 import { Sound } from "../core/sound";
 import { State } from "../core/state";
 import { BotEngine, hexToRGB } from "../mochi/engine";
-import { Greeting } from "../mochi/greeting";
+import { GREETING_H, GREETING_W, Greeting } from "../mochi/greeting";
 import { createMiniBot, pruneMiniBots, syncMiniBotStates, tickMiniBots } from "../mochi/minibots";
 import { SeasonCache, parseOutfit } from "../mochi/wardrobe";
 import { UploadCanvas } from "../upload/canvas";
@@ -429,10 +429,10 @@ export class Island {
     );
 
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    this.greetingCanvas.width = Math.round(EXPANDED_W * dpr);
-    this.greetingCanvas.height = Math.round(150 * dpr);
-    this.greetingCanvas.style.width = `${EXPANDED_W}px`;
-    this.greetingCanvas.style.height = "150px";
+    this.greetingCanvas.width = Math.round(GREETING_W * dpr);
+    this.greetingCanvas.height = Math.round(GREETING_H * dpr);
+    this.greetingCanvas.style.width = `${GREETING_W}px`;
+    this.greetingCanvas.style.height = `${GREETING_H}px`;
 
     this.root.append(this.wakeStrip, this.islandEl);
     this.updateCompactClock();
@@ -1054,8 +1054,8 @@ export class Island {
     // the state-driven DOM sync.
     this.miniGrid.style.left = `${w - 40 - 14.5}px`;
     this.miniGrid.style.top = `${hh / 2 - 14.5}px`;
-    this.greetingCanvas.style.left = `${(w - EXPANDED_W) / 2}px`;
-    this.uploadCanvas.el.style.left = `${(w - EXPANDED_W) / 2}px`;
+    this.greetingCanvas.style.left = `${(w - GREETING_W) / 2}px`;
+    this.uploadCanvas.el.style.left = "0px";
 
     const viewportW = window.innerWidth || this.windowSize.w || PANEL_W;
     const rect = { x: Math.max(0, (viewportW - w) / 2), y: 0, w, h: hh };
@@ -1367,7 +1367,15 @@ export class Island {
     }
 
     const uploadActive = this.uploadActive;
-    if (uploadActive) this.uploadCanvas.draw(UploadSeq.frame(), nowMs / 1000);
+    if (uploadActive) {
+      this.uploadCanvas.draw(
+        UploadSeq.frame(),
+        nowMs / 1000,
+        this.width.value,
+        this.height.value,
+        this.currentHeaderHeight(),
+      );
+    }
     this.uploadCanvas.el.classList.toggle("on", uploadActive);
     this.viewsEl.classList.toggle("hidden-by-upload", uploadActive);
 

@@ -120,7 +120,9 @@ export class UploadCanvas {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D | null;
   private overlay: HTMLElement;
-  private sizedFor = 0;
+  private sizedKey = "";
+  private askBtnEl!: HTMLButtonElement;
+  private cancelBtnEl!: HTMLButtonElement;
 
   constructor(actions: UploadCanvasActions) {
     this.canvas = document.createElement("canvas");
@@ -138,9 +140,11 @@ export class UploadCanvas {
       b.addEventListener("click", onclick);
       return b;
     };
+    this.askBtnEl = mk(ASK_BTN.x, ASK_BTN.w, actions.ask);
+    this.cancelBtnEl = mk(CANCEL_BTN.x, CANCEL_BTN.w, actions.cancel);
     this.overlay = document.createElement("div");
     this.overlay.id = "upload-overlay";
-    this.overlay.append(mk(ASK_BTN.x, ASK_BTN.w, actions.ask), mk(CANCEL_BTN.x, CANCEL_BTN.w, actions.cancel));
+    this.overlay.append(this.askBtnEl, this.cancelBtnEl);
 
     this.el = document.createElement("div");
     this.el.id = "upload-layer";
@@ -150,50 +154,81 @@ export class UploadCanvas {
   }
 
   /** `wallTime` in seconds drives the marching dashes, like the macOS timeline. */
-  draw(f: UploadFrame, wallTime: number) {
+  draw(
+    f: UploadFrame,
+    wallTime: number,
+    islandW: number = USC.W,
+    islandH: number = USC.ISL_H,
+    headerH = 34,
+  ) {
+    const w = Math.max(USC.W, Math.round(islandW));
+    const h = Math.max(USC.ISL_H, Math.round(islandH));
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    if (this.sizedFor !== dpr) {
-      this.sizedFor = dpr;
-      this.canvas.width = Math.round(USC.W * dpr);
-      this.canvas.height = Math.round(USC.ISL_H * dpr);
-      this.canvas.style.width = `${USC.W}px`;
-      this.canvas.style.height = `${USC.ISL_H}px`;
+    const key = `${dpr}:${w}:${h}`;
+    if (this.sizedKey !== key) {
+      this.sizedKey = key;
+      this.canvas.width = Math.round(w * dpr);
+      this.canvas.height = Math.round(h * dpr);
+      this.canvas.style.width = `${w}px`;
+      this.canvas.style.height = `${h}px`;
+      this.el.style.width = `${w}px`;
+      this.el.style.height = `${h}px`;
     }
     const ctx = this.ctx;
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, USC.W, USC.ISL_H);
+    ctx.clearRect(0, 0, w, h);
 
-    this.drawScene(ctx, f, wallTime);
+    const cardX = USC.CARD_X;
+    const cardY = 8 + Math.max(34, headerH);
+    const cardW = Math.max(200, w - 20);
+    const cardH = Math.max(80, h - cardY - 10);
+    const dy = cardY - USC.CARD_Y + (cardH - USC.CARD_H) / 2;
 
+    this.drawScene(ctx, f, wallTime, w, h, cardX, cardY, cardW, cardH, dy);
+
+    const btnTop = `${Math.round(113 + dy)}px`;
+    this.askBtnEl.style.top = btnTop;
+    this.cancelBtnEl.style.top = btnTop;
     // The buttons only exist once the choose card has faded in.
     this.overlay.style.display = f.chooseAlpha > 0.5 ? "block" : "none";
   }
 
   // ── Scene ─────────────────────────────────────────────────────────────────
 
-  private drawScene(ctx: CanvasRenderingContext2D, f: UploadFrame, wallTime: number) {
+  private drawScene(
+    ctx: CanvasRenderingContext2D,
+    f: UploadFrame,
+    wallTime: number,
+    w: number,
+    h: number,
+    cardX: number,
+    cardY: number,
+    cardW: number,
+    cardH: number,
+    dy: number,
+  ) {
     // Island background.
     ctx.fillStyle = "#000000";
-    ctx.fillRect(0, 0, USC.W, USC.ISL_H);
+    ctx.fillRect(0, 0, w, h);
 
     // Card.
     ctx.save();
-    rr(ctx, USC.CARD_X, USC.CARD_Y, USC.CARD_W, USC.CARD_H, USC.CARD_R);
+    rr(ctx, cardX, cardY, cardW, cardH, USC.CARD_R);
     ctx.clip();
     ctx.fillStyle = "#0D0E10";
-    ctx.fillRect(USC.CARD_X, USC.CARD_Y, USC.CARD_W, USC.CARD_H);
+    ctx.fillRect(cardX, cardY, cardW, cardH);
 
     // Green glow, fanning up from the bottom edge of the card.
     if (f.greenWash > 0) {
-      const gx = USC.CARD_X + USC.CARD_W / 2;
-      const gy = USC.CARD_Y + USC.CARD_H;
-      const g = ctx.createRadialGradient(gx, gy, 0, gx, gy, USC.CARD_H * 1.5);
+      const gx = cardX + cardW / 2;
+      const gy = cardY + cardH;
+      const g = ctx.createRadialGradient(gx, gy, 0, gx, gy, cardH * 1.5);
       g.addColorStop(0, `rgba(40,212,130,${f.greenWash * 0.9})`);
       g.addColorStop(0.55, `rgba(40,212,130,${f.greenWash * 0.3})`);
       g.addColorStop(1, "rgba(40,212,130,0)");
       ctx.fillStyle = g;
-      ctx.fillRect(USC.CARD_X, USC.CARD_Y, USC.CARD_W, USC.CARD_H);
+      ctx.fillRect(cardX, cardY, cardW, cardH);
     }
     ctx.restore();
 
@@ -205,25 +240,31 @@ export class UploadCanvas {
       ctx.lineWidth = 1.5;
       ctx.setLineDash([6, 5]);
       ctx.lineDashOffset = -wallTime * 20;
-      rr(ctx, USC.CARD_X + 0.75, USC.CARD_Y + 0.75, USC.CARD_W - 1.5, USC.CARD_H - 1.5, USC.CARD_R - 0.5);
+      rr(ctx, cardX + 0.75, cardY + 0.75, cardW - 1.5, cardH - 1.5, USC.CARD_R - 0.5);
       ctx.stroke();
       ctx.restore();
     }
 
-    if (f.zoneAlpha > 0 && f.textAlpha > 0) this.drawDropText(ctx, f);
-    if (f.barAlpha > 0 || f.barReveal > 0) this.drawProgressBar(ctx, f);
-    if (f.chooseAlpha > 0) this.drawChoose(ctx, f);
+    const extraW = Math.max(0, cardW - USC.CARD_W);
+    const textRight = TEXT_RIGHT + extraW;
+
+    ctx.save();
+    ctx.translate(0, dy);
+    if (f.zoneAlpha > 0 && f.textAlpha > 0) this.drawDropText(ctx, f, textRight);
+    if (f.barAlpha > 0 || f.barReveal > 0) this.drawProgressBar(ctx, f, extraW);
+    if (f.chooseAlpha > 0) this.drawChoose(ctx, f, textRight);
 
     this.drawMochi(ctx, f);
     if (f.fileVisible) this.drawFile(ctx, f);
+    ctx.restore();
   }
 
   // ── Drop zone text and chips ──────────────────────────────────────────────
 
-  private drawDropText(ctx: CanvasRenderingContext2D, f: UploadFrame) {
+  private drawDropText(ctx: CanvasRenderingContext2D, f: UploadFrame, textRight = TEXT_RIGHT) {
     ctx.save();
     ctx.globalAlpha = f.textAlpha;
-    const title = fitted(ctx, t("Drop your files here"), TEXT_RIGHT - USC.TEXT_X, 500, 13);
+    const title = fitted(ctx, t("Drop your files here"), textRight - USC.TEXT_X, 500, 13);
     text(ctx, title.s, USC.TEXT_X, USC.TEXT_Y - 4, title.font, "#D5D7DB");
 
     // The macOS port measures chips the same rough way, so the row lines up; a
@@ -236,7 +277,7 @@ export class UploadCanvas {
     };
     let ws = widths();
     const rowW = () => ws.reduce((a, b) => a + b, 0) + 6 * (ws.length - 1);
-    while (rowW() > TEXT_RIGHT - USC.TEXT_X && chipPx > 8.5) {
+    while (rowW() > textRight - USC.TEXT_X && chipPx > 8.5) {
       chipPx -= 0.5;
       ws = widths();
     }
@@ -254,12 +295,12 @@ export class UploadCanvas {
 
   // ── Progress bar ──────────────────────────────────────────────────────────
 
-  private drawProgressBar(ctx: CanvasRenderingContext2D, f: UploadFrame) {
+  private drawProgressBar(ctx: CanvasRenderingContext2D, f: UploadFrame, extraW = 0) {
     ctx.save();
     ctx.globalAlpha = Math.max(f.barAlpha, 0.001);
 
     const x0 = USC.BAR_X0;
-    const x1 = USC.BAR_X1;
+    const x1 = USC.BAR_X1 + extraW;
     const by = USC.BAR_Y;
     const barLen = (x1 - x0) * f.barReveal;
 
@@ -332,12 +373,12 @@ export class UploadCanvas {
 
   // ── Choose card ───────────────────────────────────────────────────────────
 
-  private drawChoose(ctx: CanvasRenderingContext2D, f: UploadFrame) {
+  private drawChoose(ctx: CanvasRenderingContext2D, f: UploadFrame, textRight = TEXT_RIGHT) {
     ctx.save();
     ctx.globalAlpha = f.chooseAlpha;
     ctx.translate(0, (1 - f.chooseAlpha) * 4);
 
-    const maxW = TEXT_RIGHT - 114;
+    const maxW = textRight - 114;
     const ready = fitted(ctx, t("{name} is ready.", { name: State.droppedFile?.name ?? t("file") }), maxW, 600, 14);
     text(ctx, ready.s, 114, 80, ready.font, "#F5F6F8");
     const what = fitted(ctx, t("What do you want to do with it?"), maxW, 400, 12.5);

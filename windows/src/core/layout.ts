@@ -124,7 +124,7 @@ export function islandSize(
       return { w: cfg.compactNotchWidth, h: cfg.compactNotchHeight };
     case "expanded": {
       if (view === "greeting") {
-        return { w: 720, h: VIEW_LAYOUTS.greeting.height };
+        return { w: 640, h: VIEW_LAYOUTS.greeting.height };
       }
       const baseH =
         view === "prompt"
