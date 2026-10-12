@@ -153,7 +153,11 @@ class WorkflowEngine {
   }
 
   private async initSystemMedia() {
-    await Promise.all([this.refreshBatteryStatus(), this.refreshMediaStatus()]);
+    await Promise.all([
+      this.refreshBatteryStatus(),
+      this.refreshBluetoothStatus(),
+      this.refreshMediaStatus(),
+    ]);
   }
 
   async refreshBatteryStatus() {
@@ -167,6 +171,23 @@ class WorkflowEngine {
       prev.status !== bat.status ||
       prev.hasBattery !== bat.hasBattery;
     State.batteryStatus = bat;
+    if (changed) {
+      State.notify();
+    }
+  }
+
+  async refreshBluetoothStatus() {
+    const bt = await Bridge.bluetoothStatusGet();
+    if (!bt) return;
+    const prev = State.bluetoothStatus;
+    const changed =
+      !prev ||
+      prev.connected !== bt.connected ||
+      prev.primaryName !== bt.primaryName ||
+      prev.primaryAddress !== bt.primaryAddress ||
+      prev.primaryBattery !== bt.primaryBattery ||
+      prev.devices.length !== bt.devices.length;
+    State.bluetoothStatus = bt;
     if (changed) {
       State.notify();
     }
@@ -851,6 +872,9 @@ class WorkflowEngine {
 
   private tickSystemMedia() {
     void this.refreshBatteryStatus();
+    if (this.agentPollCounter % 2 === 0) {
+      void this.refreshBluetoothStatus();
+    }
     const isBrowserFocused =
       State.focusTask?.name === "Browser" ||
       (State.focusTask?.windowClass || "").toLowerCase().includes("brave") ||

@@ -292,8 +292,9 @@ export const Bridge = {
   reportLayoutMetrics: (metrics: Record<string, unknown>) =>
     call<void>("report_layout_metrics", { metrics }),
 
-  // ── Battery charging & MPRIS/browser media playback (system_media.rs) ──────
+  // ── Battery charging, Bluetooth & MPRIS/browser media playback (system_media.rs) ──
   batteryStatusGet: () => call<BatteryStatus>("battery_status_get"),
+  bluetoothStatusGet: () => call<BluetoothStatus>("bluetooth_status_get"),
   mediaStatusGet: () => call<MediaStatus>("media_status_get"),
   mediaControl: (action: string, value?: number) =>
     call<MediaStatus>("media_control", { action, value }),
@@ -304,6 +305,25 @@ export interface BatteryStatus {
   charging: boolean;
   percentage: number;
   status: string;
+}
+
+export interface BluetoothDeviceStatus {
+  address: string;
+  name: string;
+  icon: string;
+  battery: number;
+  hasBatteryInfo: boolean;
+  connected: boolean;
+}
+
+export interface BluetoothStatus {
+  connected: boolean;
+  primaryName: string;
+  primaryAddress: string;
+  primaryIcon: string;
+  primaryBattery: number;
+  hasBatteryInfo: boolean;
+  devices: BluetoothDeviceStatus[];
 }
 
 export interface MediaStatus {

@@ -47,8 +47,188 @@ impl Default for MediaStatus {
     }
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BluetoothDeviceStatus {
+    pub address: String,
+    pub name: String,
+    pub icon: String,
+    pub battery: u8,
+    pub has_battery_info: bool,
+    pub connected: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct BluetoothStatus {
+    pub connected: bool,
+    pub primary_name: String,
+    pub primary_address: String,
+    pub primary_icon: String,
+    pub primary_battery: u8,
+    pub has_battery_info: bool,
+    pub devices: Vec<BluetoothDeviceStatus>,
+}
+
 fn read_trimmed(path: &Path) -> Option<String> {
     fs::read_to_string(path).ok().map(|s| s.trim().to_string())
+}
+
+fn fallback_peripheral_battery() -> Option<u8> {
+    let base = Path::new("/sys/class/power_supply");
+    let entries = fs::read_dir(base).ok()?;
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with("BAT")
+            || name.starts_with("AC")
+            || name.starts_with("ADP")
+            || name.starts_with("Mains")
+            || name.contains("ucsi")
+        {
+            continue;
+        }
+        let path = entry.path();
+        let scope = read_trimmed(&path.join("scope")).unwrap_or_default();
+        if scope.eq_ignore_ascii_case("Device") || name.contains("hid") || name.contains("blue") {
+            if let Some(cap_str) = read_trimmed(&path.join("capacity")) {
+                if let Ok(cap) = cap_str.parse::<u16>() {
+                    return Some(cap.min(100) as u8);
+                }
+            }
+        }
+    }
+    None
+}
+
+#[tauri::command]
+pub fn bluetooth_status_get() -> BluetoothStatus {
+    let Ok(out) = Command::new("busctl")
+        .args([
+            "--json=short",
+            "call",
+            "--system",
+            "org.bluez",
+            "/",
+            "org.freedesktop.DBus.ObjectManager",
+            "GetManagedObjects",
+        ])
+        .output()
+    else {
+        return BluetoothStatus::default();
+    };
+
+    if !out.status.success() {
+        return BluetoothStatus::default();
+    }
+
+    let Ok(root) = serde_json::from_slice::<serde_json::Value>(&out.stdout) else {
+        return BluetoothStatus::default();
+    };
+
+    let Some(objects) = root
+        .get("data")
+        .and_then(|d| d.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|o| o.as_object())
+    else {
+        return BluetoothStatus::default();
+    };
+
+    let peripheral_bat = fallback_peripheral_battery();
+    let mut connected_devices: Vec<BluetoothDeviceStatus> = Vec::new();
+
+    for (obj_path, ifaces_val) in objects {
+        if !obj_path.starts_with("/org/bluez/") {
+            continue;
+        }
+        let Some(ifaces) = ifaces_val.as_object() else {
+            continue;
+        };
+        let Some(dev1) = ifaces.get("org.bluez.Device1").and_then(|v| v.as_object()) else {
+            continue;
+        };
+
+        let is_connected = dev1
+            .get("Connected")
+            .and_then(|v| v.get("data"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        if !is_connected {
+            continue;
+        }
+
+        let address = dev1
+            .get("Address")
+            .and_then(|v| v.get("data"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let alias = dev1
+            .get("Alias")
+            .and_then(|v| v.get("data"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let raw_name = dev1
+            .get("Name")
+            .and_then(|v| v.get("data"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let name = if !alias.trim().is_empty() {
+            alias.trim().to_string()
+        } else if !raw_name.trim().is_empty() {
+            raw_name.trim().to_string()
+        } else {
+            "Bluetooth Device".to_string()
+        };
+        let icon = dev1
+            .get("Icon")
+            .and_then(|v| v.get("data"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("audio-headset")
+            .to_string();
+
+        let bluez_bat = ifaces
+            .get("org.bluez.Battery1")
+            .and_then(|v| v.as_object())
+            .and_then(|b| b.get("Percentage"))
+            .and_then(|v| v.get("data"))
+            .and_then(|v| v.as_u64())
+            .map(|n| n.min(100) as u8);
+
+        let resolved_bat = bluez_bat.or(peripheral_bat);
+        connected_devices.push(BluetoothDeviceStatus {
+            address,
+            name,
+            icon,
+            battery: resolved_bat.unwrap_or(100),
+            has_battery_info: resolved_bat.is_some(),
+            connected: true,
+        });
+    }
+
+    // Prioritize audio headsets / earbuds first
+    connected_devices.sort_by_key(|d| {
+        let ic = d.icon.to_lowercase();
+        if ic.contains("headset") || ic.contains("headphone") || ic.contains("audio") {
+            0
+        } else {
+            1
+        }
+    });
+
+    if let Some(primary) = connected_devices.first().cloned() {
+        BluetoothStatus {
+            connected: true,
+            primary_name: primary.name,
+            primary_address: primary.address,
+            primary_icon: primary.icon,
+            primary_battery: primary.battery,
+            has_battery_info: primary.has_battery_info,
+            devices: connected_devices,
+        }
+    } else {
+        BluetoothStatus::default()
+    }
 }
 
 #[tauri::command]

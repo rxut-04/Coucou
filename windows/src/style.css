@@ -3516,6 +3516,154 @@ html[data-dir="rtl"] #views :is(.bubble, .reply .md-p, .reply .md-h, .reply .md-
   background: rgba(255, 255, 255, 0.68);
 }
 
+/* ── Sleek Bluetooth Connected Dynamic Bar in Inactive (Compact) State ───── */
+
+#bluetooth-bar {
+  position: absolute;
+  left: 50%;
+  top: 46px;
+  height: 54px;
+  padding: 0 14px 0 15px;
+  border-radius: 999px;
+  background: #000000;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.72),
+    0 0 16px rgba(48, 209, 88, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  opacity: 0;
+  transform: translateX(-50%) translateY(-12px) scale(0.94);
+  filter: blur(2.5px);
+  pointer-events: none;
+  will-change: opacity, transform, filter;
+  transition:
+    opacity 0.38s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.42s cubic-bezier(0.22, 1, 0.36, 1),
+    filter 0.34s cubic-bezier(0.22, 1, 0.36, 1),
+    top 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+    width 0.2s ease-out;
+  z-index: 2;
+}
+
+#bluetooth-bar.on {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0) scale(1);
+  filter: blur(0px);
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.bt-icon-wrap {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  filter: drop-shadow(0 2px 6px rgba(255, 255, 255, 0.18));
+  animation: bt-float 2.8s ease-in-out infinite;
+}
+
+@keyframes bt-float {
+  0%, 100% { transform: translateY(0px) scale(1); }
+  50% { transform: translateY(-1.2px) scale(1.03); }
+}
+
+.bt-info {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  text-align: center;
+}
+
+.bt-connected-label {
+  font: 500 13px/1.1 var(--font);
+  color: #8e939c;
+  letter-spacing: 0.01em;
+}
+
+.bt-device-name {
+  max-width: 100%;
+  font: 700 15px/1.15 var(--font);
+  color: #ffffff;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bt-ring-wrap {
+  position: relative;
+  flex: 0 0 38px;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+}
+
+.bt-ring-svg {
+  width: 38px;
+  height: 38px;
+  transform: rotate(-90deg);
+}
+
+.bt-ring-track {
+  fill: none;
+  stroke: rgba(48, 209, 88, 0.24);
+  stroke-width: 3.8;
+}
+
+.bt-ring-progress {
+  fill: none;
+  stroke: #30d158;
+  stroke-width: 3.8;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 4px rgba(48, 209, 88, 0.45));
+  transition: stroke-dashoffset 0.45s cubic-bezier(0.22, 1, 0.36, 1), stroke 0.2s ease;
+}
+
+.bt-ring-pct {
+  position: absolute;
+  font: 700 13px/1 var(--font);
+  font-variant-numeric: tabular-nums;
+  color: #30d158;
+  letter-spacing: -0.02em;
+}
+
+#bluetooth-bar.low-battery .bt-ring-track {
+  stroke: rgba(245, 158, 11, 0.24);
+}
+
+#bluetooth-bar.low-battery .bt-ring-progress {
+  stroke: #f59e0b;
+  filter: drop-shadow(0 0 4px rgba(245, 158, 11, 0.45));
+}
+
+#bluetooth-bar.low-battery .bt-ring-pct {
+  color: #fbbf24;
+}
+
+.p3-bt-pill {
+  border-color: rgba(48, 209, 88, 0.38) !important;
+  background: rgba(48, 209, 88, 0.1) !important;
+  color: #86efac !important;
+  cursor: pointer;
+}
+
+.p3-bt-pill:hover {
+  border-color: rgba(48, 209, 88, 0.65) !important;
+  background: rgba(48, 209, 88, 0.18) !important;
+  color: #bbf7d0 !important;
+}
+
 /* ── Pomodoro Focus Timer Control Card (.ft-card) ────────────────────────── */
 
 .p3-focus-active {

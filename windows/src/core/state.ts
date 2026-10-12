@@ -16,6 +16,7 @@ import {
   Bridge,
   type AgentLiveStatus,
   type BatteryStatus,
+  type BluetoothStatus,
   type DailyGoalRecord,
   type DomainCategory,
   type HealthStatusSnapshot,
@@ -544,6 +545,10 @@ class AppState {
   showingFocusTimerCard = false;
   /** Live battery & charging status (/sys/class/power_supply). */
   batteryStatus: BatteryStatus | null = null;
+  /** Live connected Bluetooth device & battery status (BlueZ DBus). */
+  bluetoothStatus: BluetoothStatus | null = null;
+  /** Incremented whenever the user manually requests to show the Bluetooth dynamic bar. */
+  bluetoothToastTriggerSeq = 0;
   /** Live MPRIS / browser media playback status (playerctl). */
   mediaStatus: MediaStatus | null = null;
   /** Phase A-F: Layout stress test mode ("off" | "on" | "recap" | "agent" | "few" | "compact"). */

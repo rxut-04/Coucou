@@ -43,6 +43,9 @@ const HIT_MARGIN = 14;
 /** Extra vertical space below compact bar when the separate charging bar is shown. */
 const CHARGING_BAR_EXTRA_H = 42;
 const CHARGING_TOAST_MS = 3000;
+/** Extra vertical space below compact bar when the separate Bluetooth bar is shown. */
+const BLUETOOTH_BAR_EXTRA_H = 64;
+const BLUETOOTH_TOAST_MS = 4500;
 /** Inactivity timeout (8 seconds) before a dragged island automatically returns to its top-center home. */
 const ISLAND_POSITION_RESET_MS = 8000;
 const ISLAND_DRAG_DEADZONE_PX = 4;
@@ -84,6 +87,17 @@ export class Island {
   private chargingToastPending = false;
   private chargingToastActive = false;
   private chargingToastTimer: number | null = null;
+  private bluetoothBarEl!: HTMLElement;
+  private bluetoothStatusLabelEl!: HTMLElement;
+  private bluetoothDeviceNameEl!: HTMLElement;
+  private bluetoothRingProgressEl!: SVGCircleElement;
+  private bluetoothRingPctEl!: HTMLElement;
+  private lastBluetoothVisible = false;
+  private lastBluetoothKey: string | null = null;
+  private lastBluetoothTriggerSeq = 0;
+  private bluetoothToastPending = false;
+  private bluetoothToastActive = false;
+  private bluetoothToastTimer: number | null = null;
   private countdown!: HTMLElement;
   private wakeStrip!: HTMLElement;
 
@@ -457,6 +471,84 @@ export class Island {
       ),
     );
 
+    // Sleek Dynamic Island Bluetooth Connected bar floating below the compact bar
+    const btEarbudsWrap = h("div", { class: "bt-icon-wrap" });
+    btEarbudsWrap.innerHTML = `<svg class="bt-earbuds-svg" viewBox="0 0 44 38" width="38" height="33" aria-hidden="true">
+      <defs>
+        <radialGradient id="btBudGradL" cx="35%" cy="28%" r="72%">
+          <stop offset="0%" stop-color="#ffffff"/>
+          <stop offset="58%" stop-color="#e5e7eb"/>
+          <stop offset="100%" stop-color="#9ca3af"/>
+        </radialGradient>
+        <radialGradient id="btBudGradR" cx="65%" cy="28%" r="72%">
+          <stop offset="0%" stop-color="#ffffff"/>
+          <stop offset="58%" stop-color="#e5e7eb"/>
+          <stop offset="100%" stop-color="#9ca3af"/>
+        </radialGradient>
+        <linearGradient id="btStemGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#f9fafb"/>
+          <stop offset="65%" stop-color="#d1d5db"/>
+          <stop offset="100%" stop-color="#9ca3af"/>
+        </linearGradient>
+      </defs>
+      <!-- Left wireless earbud -->
+      <g transform="translate(1, 2) rotate(-10 11 16)">
+        <rect x="6.2" y="15.5" width="4.8" height="16.5" rx="2.4" fill="url(#btStemGrad)"/>
+        <rect x="6.5" y="29.8" width="4.2" height="2.1" rx="1" fill="#6b7280" opacity="0.55"/>
+        <ellipse cx="11.8" cy="11.5" rx="8.4" ry="7.2" fill="url(#btBudGradL)"/>
+        <ellipse cx="14.6" cy="11.6" rx="2.2" ry="3.7" fill="#18181b"/>
+        <ellipse cx="9.6" cy="9.4" rx="1.6" ry="0.9" transform="rotate(-20 9.6 9.4)" fill="#374151" opacity="0.65"/>
+      </g>
+      <!-- Right wireless earbud -->
+      <g transform="translate(21, 2) rotate(10 11 16)">
+        <rect x="11.0" y="15.5" width="4.8" height="16.5" rx="2.4" fill="url(#btStemGrad)"/>
+        <rect x="11.3" y="29.8" width="4.2" height="2.1" rx="1" fill="#6b7280" opacity="0.55"/>
+        <ellipse cx="10.2" cy="11.5" rx="8.4" ry="7.2" fill="url(#btBudGradR)"/>
+        <ellipse cx="7.4" cy="11.6" rx="2.2" ry="3.7" fill="#18181b"/>
+        <ellipse cx="12.4" cy="9.4" rx="1.6" ry="0.9" transform="rotate(20 12.4 9.4)" fill="#374151" opacity="0.65"/>
+      </g>
+    </svg>`;
+
+    this.bluetoothStatusLabelEl = h("span", { class: "bt-connected-label", text: "Connected" });
+    this.bluetoothDeviceNameEl = h("span", { class: "bt-device-name", text: "Bluetooth Audio" });
+
+    const btSvgNs = "http://www.w3.org/2000/svg";
+    const btRingSvg = document.createElementNS(btSvgNs, "svg");
+    btRingSvg.setAttribute("class", "bt-ring-svg");
+    btRingSvg.setAttribute("viewBox", "0 0 40 40");
+    const btRingTrack = document.createElementNS(btSvgNs, "circle");
+    btRingTrack.setAttribute("class", "bt-ring-track");
+    btRingTrack.setAttribute("cx", "20");
+    btRingTrack.setAttribute("cy", "20");
+    btRingTrack.setAttribute("r", "15.5");
+    this.bluetoothRingProgressEl = document.createElementNS(btSvgNs, "circle");
+    this.bluetoothRingProgressEl.setAttribute("class", "bt-ring-progress");
+    this.bluetoothRingProgressEl.setAttribute("cx", "20");
+    this.bluetoothRingProgressEl.setAttribute("cy", "20");
+    this.bluetoothRingProgressEl.setAttribute("r", "15.5");
+    const btCircumference = 2 * Math.PI * 15.5;
+    this.bluetoothRingProgressEl.style.strokeDasharray = `${btCircumference.toFixed(2)}`;
+    this.bluetoothRingProgressEl.style.strokeDashoffset = `${(btCircumference * 0.25).toFixed(2)}`;
+    btRingSvg.append(btRingTrack, this.bluetoothRingProgressEl);
+
+    this.bluetoothRingPctEl = h("span", { class: "bt-ring-pct", text: "75" });
+    const btRingWrap = h("div", { class: "bt-ring-wrap" }, btRingSvg, this.bluetoothRingPctEl);
+
+    this.bluetoothBarEl = h(
+      "div",
+      {
+        id: "bluetooth-bar",
+        title: "Bluetooth device connected — Click to expand Coucou",
+        onclick: () => {
+          Sound.resume();
+          if (State.mode !== "expanded") this.fsm.click();
+        },
+      },
+      btEarbudsWrap,
+      h("div", { class: "bt-info" }, this.bluetoothStatusLabelEl, this.bluetoothDeviceNameEl),
+      btRingWrap,
+    );
+
     this.header = buildHeader(actions);
     this.views = buildViews(actions, () => this.animateGeometry(false));
     this.viewsEl = h("div", { id: "views" });
@@ -499,7 +591,7 @@ export class Island {
     this.greetingCanvas.style.width = `${GREETING_W}px`;
     this.greetingCanvas.style.height = `${GREETING_H}px`;
 
-    this.root.append(this.wakeStrip, this.islandEl, this.chargingBarEl);
+    this.root.append(this.wakeStrip, this.islandEl, this.chargingBarEl, this.bluetoothBarEl);
     this.updateCompactClock();
     window.setInterval(() => {
       if (State.mode === "compact") this.updateCompactClock();
@@ -1035,8 +1127,23 @@ export class Island {
     );
   }
 
+  private isBluetoothBarVisible(): boolean {
+    return (
+      State.mode === "compact" &&
+      Boolean(State.bluetoothStatus?.connected) &&
+      this.bluetoothToastActive
+    );
+  }
+
+  private extraCompactBarsHeight(): number {
+    let extra = 0;
+    if (this.isChargingBarVisible()) extra += CHARGING_BAR_EXTRA_H;
+    if (this.isBluetoothBarVisible()) extra += BLUETOOTH_BAR_EXTRA_H;
+    return extra;
+  }
+
   private scheduleWindowResize(targetW: number, targetH: number, collapseMs = 340) {
-    const extraH = this.isChargingBarVisible() ? CHARGING_BAR_EXTRA_H : 0;
+    const extraH = this.extraCompactBarsHeight();
     const desiredW = Math.max(NOTCH_W, Math.ceil(targetW));
     const desiredH = Math.max(32, Math.ceil(targetH + extraH));
 
@@ -1291,6 +1398,13 @@ export class Island {
       this.chargingBarEl.style.left = `calc(50% + ${ox}px)`;
     }
 
+    if (this.bluetoothBarEl) {
+      const chargingOffset = this.isChargingBarVisible() ? 36 : 0;
+      this.bluetoothBarEl.style.width = `${Math.max(w, 296)}px`;
+      this.bluetoothBarEl.style.top = `${oy + hh + 6 + chargingOffset}px`;
+      this.bluetoothBarEl.style.left = `calc(50% + ${ox}px)`;
+    }
+
     // These follow the island as it resizes, so they belong here rather than in
     // the state-driven DOM sync.
     this.miniGrid.style.left = `${w - 40 - 14.5}px`;
@@ -1298,12 +1412,13 @@ export class Island {
     this.greetingCanvas.style.left = `${(w - GREETING_W) / 2}px`;
     this.uploadCanvas.el.style.left = "0px";
 
-    const extraH = this.isChargingBarVisible() ? CHARGING_BAR_EXTRA_H : 0;
+    const extraH = this.extraCompactBarsHeight();
+    const btWide = this.isBluetoothBarVisible() ? Math.max(w, 296) : w;
     const viewportW = window.innerWidth || this.windowSize.w || PANEL_W;
     const rect = {
-      x: Math.max(0, (viewportW - w) / 2 + ox),
+      x: Math.max(0, (viewportW - btWide) / 2 + ox),
       y: Math.max(0, oy),
-      w,
+      w: btWide,
       h: hh + extraH,
     };
     const p = this.pushedRect;
@@ -1323,12 +1438,13 @@ export class Island {
     const w = this.width.value;
     const hh = this.height.value;
     const { ox, oy } = this.clampIslandOffset(this.offsetX.value, this.offsetY.value, w, hh);
-    const extraH = this.isChargingBarVisible() ? CHARGING_BAR_EXTRA_H : 0;
+    const extraH = this.extraCompactBarsHeight();
+    const btWide = this.isBluetoothBarVisible() ? Math.max(w, 296) : w;
     const viewportW = window.innerWidth || this.windowSize.w || PANEL_W;
     return {
-      x: Math.max(0, (viewportW - w) / 2 + ox),
+      x: Math.max(0, (viewportW - btWide) / 2 + ox),
       y: Math.max(0, oy),
-      w,
+      w: btWide,
       h: hh + extraH,
     };
   }
@@ -1981,6 +2097,7 @@ export class Island {
     }
 
     this.syncChargingBar();
+    this.syncBluetoothBar();
 
     const activeTasks = [
       ...(State.focusTask ? [State.focusTask] : []),
@@ -2048,6 +2165,93 @@ export class Island {
       this.lastChargingVisible = visible;
       const { w, h } = this.targetSize();
       this.scheduleWindowResize(w, h, visible ? 0 : 400);
+      this.applyGeometry();
+    }
+  }
+
+  private clearBluetoothToastTimer() {
+    if (this.bluetoothToastTimer != null) {
+      window.clearTimeout(this.bluetoothToastTimer);
+      this.bluetoothToastTimer = null;
+    }
+  }
+
+  private syncBluetoothBar() {
+    if (!this.bluetoothBarEl) return;
+    const bt = State.bluetoothStatus;
+    const connected = Boolean(bt?.connected);
+    const currentKey = connected ? `${bt?.primaryAddress || bt?.primaryName || "bt"}` : "";
+    const wasInitialized = this.lastBluetoothKey !== null;
+
+    if (State.bluetoothToastTriggerSeq !== this.lastBluetoothTriggerSeq) {
+      this.lastBluetoothTriggerSeq = State.bluetoothToastTriggerSeq;
+      if (connected) {
+        this.bluetoothToastPending = true;
+      }
+    }
+
+    if (connected && this.lastBluetoothKey !== currentKey) {
+      this.lastBluetoothKey = currentKey;
+      this.bluetoothToastPending = true;
+      // If a Bluetooth device newly connects after startup while the island is open
+      // (and not in greeting or approval), fold to compact so the dynamic Bluetooth bar shows immediately.
+      if (
+        wasInitialized &&
+        State.mode === "expanded" &&
+        State.view !== "greeting" &&
+        !State.pendingApproval
+      ) {
+        this.collapse();
+      }
+    } else if (!connected && this.lastBluetoothKey !== "") {
+      this.lastBluetoothKey = "";
+      this.bluetoothToastPending = false;
+      this.bluetoothToastActive = false;
+      this.clearBluetoothToastTimer();
+    }
+
+    if (State.mode === "compact") {
+      if (this.bluetoothToastPending && connected) {
+        this.bluetoothToastPending = false;
+        this.bluetoothToastActive = true;
+        Sound.play("peek");
+        this.clearBluetoothToastTimer();
+        this.bluetoothToastTimer = window.setTimeout(() => {
+          this.bluetoothToastTimer = null;
+          this.bluetoothToastActive = false;
+          this.syncBluetoothBar();
+        }, BLUETOOTH_TOAST_MS);
+      }
+    } else if (this.bluetoothToastActive) {
+      this.bluetoothToastActive = false;
+      this.clearBluetoothToastTimer();
+    }
+
+    const visible = this.isBluetoothBarVisible();
+    this.bluetoothBarEl.classList.toggle("on", visible);
+
+    if (bt && connected) {
+      const devName = bt.primaryName || "Bluetooth Audio";
+      if (this.bluetoothDeviceNameEl.textContent !== devName) {
+        this.bluetoothDeviceNameEl.textContent = devName;
+      }
+      const pct = Math.max(0, Math.min(100, bt.primaryBattery));
+      const pctText = `${pct}`;
+      if (this.bluetoothRingPctEl.textContent !== pctText) {
+        this.bluetoothRingPctEl.textContent = pctText;
+      }
+      const circumference = 2 * Math.PI * 15.5;
+      const offset = circumference * (1 - pct / 100);
+      this.bluetoothRingProgressEl.style.strokeDashoffset = `${offset.toFixed(2)}`;
+      const lowBat = pct <= 20;
+      this.bluetoothBarEl.classList.toggle("low-battery", lowBat);
+      this.bluetoothBarEl.title = `Connected: ${devName} (${pct}%) — Click to expand Coucou`;
+    }
+
+    if (visible !== this.lastBluetoothVisible) {
+      this.lastBluetoothVisible = visible;
+      const { w, h } = this.targetSize();
+      this.scheduleWindowResize(w, h, visible ? 0 : 420);
       this.applyGeometry();
     }
   }

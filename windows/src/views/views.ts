@@ -405,12 +405,31 @@ export function buildHeader(actions: ViewActions): ViewHost {
     statsPillLabel,
   );
 
+  // ── Bluetooth Connected Pill ("🎧 Noise Pop Buds · 85%")
+  const bluetoothPillLabel = h("span", { class: "p3-bt-label", text: "🎧 Connected" });
+  const bluetoothPill = h(
+    "button",
+    {
+      class: "p3-pill p3-bt-pill",
+      style: "display:none",
+      title: "Bluetooth connected — Click to preview Bluetooth Dynamic Bar",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        State.bluetoothToastTriggerSeq += 1;
+        actions.collapse();
+        State.notify();
+      },
+    },
+    bluetoothPillLabel,
+  );
+
   const stressExtraContainer = h("span", { style: "display:contents" });
 
   const phase3Bar = h(
     "div",
     { class: "phase3-bar" },
     taskPillEl,
+    bluetoothPill,
     dailyGoalsPill,
     morningRecapBtn,
     healthModePill,
@@ -476,6 +495,15 @@ export function buildHeader(actions: ViewActions): ViewHost {
       statsPill.title = `Daily Score: ${sd.dailyScore}/100 · ${sd.levelTitle} (${sd.totalXp} XP) · Streak: ${sd.streakDays}d\n${sd.formulaDoc}`;
     } else {
       statsPillLabel.textContent = "🏆 Stats";
+    }
+
+    const bt = State.bluetoothStatus;
+    if (bt?.connected) {
+      bluetoothPill.style.display = "";
+      bluetoothPillLabel.textContent = `🎧 ${bt.primaryName} · ${bt.primaryBattery}%`;
+      bluetoothPill.title = `Connected: ${bt.primaryName} (${bt.primaryBattery}%) — Click to show Bluetooth Dynamic Bar`;
+    } else {
+      bluetoothPill.style.display = "none";
     }
 
     const session = State.focusSession;
