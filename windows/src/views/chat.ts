@@ -306,6 +306,7 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
     }
     renderMarkdown(live, text);
     log.scrollTop = log.scrollHeight;
+    onHeightChange();
   });
 
   async function submit() {

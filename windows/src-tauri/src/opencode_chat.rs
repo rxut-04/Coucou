@@ -425,6 +425,65 @@ fn parse_json_event(line: &str) -> Option<Result<(Option<String>, String), Strin
     }
 }
 
+/// Streams newly accumulated text word-by-word via `on_delta` so the chat UI
+/// reveals the answer smoothly word by word instead of dumping it all at once.
+async fn stream_words_smoothly(
+    full_text: &str,
+    streamed_len: &mut usize,
+    on_delta: &mut impl FnMut(String),
+) {
+    let total = full_text.len();
+    if *streamed_len >= total {
+        return;
+    }
+
+    let remaining_words = full_text[*streamed_len..].split_whitespace().count();
+    let words_per_tick = if remaining_words > 240 {
+        3
+    } else if remaining_words > 120 {
+        2
+    } else {
+        1
+    };
+    let delay = Duration::from_millis(26);
+
+    while *streamed_len < total {
+        let rest = &full_text[*streamed_len..];
+        let mut advance = 0;
+        let mut words_taken = 0;
+        let mut in_word = false;
+
+        for (idx, ch) in rest.char_indices() {
+            let next_idx = idx + ch.len_utf8();
+            if !ch.is_whitespace() {
+                in_word = true;
+            } else if in_word {
+                words_taken += 1;
+                in_word = false;
+                if words_taken >= words_per_tick {
+                    advance = next_idx;
+                    break;
+                }
+            }
+            advance = next_idx;
+        }
+
+        if advance == 0 {
+            *streamed_len = total;
+        } else {
+            *streamed_len += advance;
+        }
+
+        let slice = full_text[..*streamed_len].trim_end().to_string();
+        if !slice.is_empty() {
+            on_delta(slice);
+        }
+        if *streamed_len < total {
+            tokio::time::sleep(delay).await;
+        }
+    }
+}
+
 async fn run_once(
     exe: &Path,
     model: &str,
@@ -458,6 +517,7 @@ async fn run_once(
     let mut lines = BufReader::new(stdout).lines();
 
     let mut parts: Vec<(Option<String>, String)> = Vec::new();
+    let mut streamed_len: usize = 0;
     let mut last_error: Option<String> = None;
 
     while let Ok(Some(line)) = lines.next_line().await {
@@ -479,7 +539,10 @@ async fn run_once(
                     .join("\n\n");
                 let visible = combined.trim().to_string();
                 if !visible.is_empty() {
-                    on_delta(visible);
+                    if streamed_len > visible.len() {
+                        streamed_len = 0;
+                    }
+                    stream_words_smoothly(&visible, &mut streamed_len, &mut on_delta).await;
                 }
             }
             Some(Err(err_msg)) => {
