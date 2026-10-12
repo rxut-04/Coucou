@@ -182,8 +182,14 @@ fn set_island_rect(app: AppHandle, shared: State<Shared>, x: f64, y: f64, width:
     }
 }
 
-/// Resizes the native Tauri / Wayland layer-shell panel window to match the
-/// dynamic island dimensions, keeping it top-centered and preserving click-through.
+/// Toggles full-screen pointer capture while the island is actively being dragged.
+#[tauri::command]
+fn set_island_dragging(app: AppHandle, shared: State<Shared>, dragging: bool) {
+    shared.gate.dragging.store(dragging, Ordering::Relaxed);
+    island::refresh_click_through(&app, &shared.gate);
+}
+
+/// Records the dynamic island dimensions and refreshes click-through.
 #[tauri::command]
 fn set_window_size(app: AppHandle, shared: State<Shared>, width: f64, height: f64) {
     if !shared.gate.set_panel_size(width, height) {
@@ -191,8 +197,6 @@ fn set_window_size(app: AppHandle, shared: State<Shared>, width: f64, height: f6
     }
     let collapsed = shared.gate.collapsed.load(Ordering::Relaxed);
     if !collapsed {
-        let pref = shared.settings.lock().unwrap().screen.clone();
-        island::apply_geometry(&app, &pref, false);
         island::refresh_click_through(&app, &shared.gate);
     }
 }
@@ -716,6 +720,7 @@ pub fn run() {
             set_system_languages,
             set_collapsed,
             set_island_rect,
+            set_island_dragging,
             set_window_size,
             focus_window,
             reposition,

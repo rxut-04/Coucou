@@ -111,6 +111,19 @@ export function buildHeader(actions: ViewActions): ViewHost {
 
   const gearBtn = h("button", { title: tl("Settings"), onclick: () => go("settings") }, svg(ICONS.gear, 14));
   const soundBtn = h("button", { title: tl("Mute"), onclick: () => actions.toggleSound() }, svg(ICONS.speakerOn, 14));
+  const collapseBtn = h(
+    "button",
+    {
+      class: "header-collapse-btn",
+      title: tl("Collapse island (Esc)"),
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        actions.blip();
+        actions.collapse();
+      },
+    },
+    svg(ICONS.chevronUp, 14, { stroke: 2.2 }),
+  );
   // Plan usage pills (off by default): before the gear, Claude first, as on the Mac.
   const claudePill = buildPlanPill(false);
   const codexPill = buildPlanPill(true);
@@ -566,7 +579,7 @@ export function buildHeader(actions: ViewActions): ViewHost {
     { id: "header" },
     h("div", { class: "tabs" }, tabHome, tabChat, tabDrop),
     phase3Bar,
-    h("div", { class: "header-actions" }, planPills, gearBtn, soundBtn),
+    h("div", { class: "header-actions" }, planPills, gearBtn, soundBtn, collapseBtn),
   );
   const headerActions = el.lastElementChild as HTMLElement;
 

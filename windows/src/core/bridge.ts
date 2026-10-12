@@ -48,6 +48,10 @@ export const Bridge = {
   setIslandRect: (x: number, y: number, width: number, height: number) =>
     call<void>("set_island_rect", { x, y, width, height }),
 
+  /** Enables/disables full-screen pointer capture while the island is being dragged. */
+  setIslandDragging: (dragging: boolean) =>
+    call<void>("set_island_dragging", { dragging }),
+
   /** Dynamically resize the native Tauri / Wayland layer-shell window to match island content. */
   setWindowSize: (width: number, height: number) =>
     call<void>("set_window_size", { width, height }),

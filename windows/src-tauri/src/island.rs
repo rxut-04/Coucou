@@ -58,6 +58,7 @@ pub struct PollGate {
     active: Mutex<bool>,
     cv: Condvar,
     pub collapsed: AtomicBool,
+    pub dragging: AtomicBool,
     pub rect: Mutex<IslandRect>,
     pub panel_size: Mutex<(f64, f64)>,
     /// Mirrors the window flag so we only call into the OS when it changes.
@@ -70,6 +71,7 @@ impl PollGate {
             active: Mutex::new(false),
             cv: Condvar::new(),
             collapsed: AtomicBool::new(true),
+            dragging: AtomicBool::new(false),
             rect: Mutex::new(IslandRect::default()),
             panel_size: Mutex::new((PANEL_W, PANEL_H)),
             ignoring: AtomicBool::new(false),
@@ -319,17 +321,13 @@ pub fn apply_geometry(app: &AppHandle, pref: &str, collapsed: bool) {
     let mp = *m.position();
     let ms = *m.size();
 
-    let max_lw = ((ms.width as f64 / scale) * 0.96).max(STRIP_W);
-    let max_lh = ((ms.height as f64 / scale) * 0.90).max(STRIP_H);
-    let (panel_w, panel_h) = app
-        .try_state::<crate::Shared>()
-        .map(|s| *s.gate.panel_size.lock().unwrap())
-        .unwrap_or((PANEL_W, PANEL_H));
+    let screen_lw = (ms.width as f64 / scale).round().max(STRIP_W);
+    let screen_lh = (ms.height as f64 / scale).round().max(STRIP_H);
 
     let (lw, lh) = if collapsed {
         (STRIP_W, STRIP_H)
     } else {
-        (panel_w.clamp(STRIP_W, max_lw), panel_h.clamp(STRIP_H, max_lh))
+        (screen_lw, screen_lh)
     };
     let pw = (lw * scale).round().max(1.0) as u32;
     let ph = (lh * scale).round().max(1.0) as u32;
@@ -446,11 +444,12 @@ pub fn spawn_cursor_poll(app: AppHandle, gate: Arc<PollGate>) {
                 }
                 was_down = down;
 
-                let dragging = down
+                let dragging = (down
                     && x >= 0.0
                     && x <= size.0
                     && y >= 0.0
-                    && y <= size.1;
+                    && y <= size.1)
+                    || gate.dragging.load(Ordering::Relaxed);
 
                 let accept = on_island || dragging;
                 if gate.ignoring.load(Ordering::Relaxed) == accept {
@@ -476,7 +475,11 @@ pub fn refresh_click_through(app: &AppHandle, gate: &PollGate) {
         return;
     }
     let Some(win) = window(app) else { return };
-    let region = if gate.collapsed.load(Ordering::Relaxed) {
+    let region = if gate.dragging.load(Ordering::Relaxed) {
+        // While dragging the island across the screen, let the entire overlay
+        // receive pointer motion and release events.
+        None
+    } else if gate.collapsed.load(Ordering::Relaxed) {
         // The wake strip itself, never "the whole window": if the window ever
         // fails to shrink to the strip, the rest of it must not swallow clicks
         // meant for whatever sits under the top of the screen.

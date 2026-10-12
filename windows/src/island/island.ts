@@ -43,6 +43,11 @@ const HIT_MARGIN = 14;
 /** Extra vertical space below compact bar when the separate charging bar is shown. */
 const CHARGING_BAR_EXTRA_H = 42;
 const CHARGING_TOAST_MS = 3000;
+/** Inactivity timeout (8 seconds) before a dragged island automatically returns to its top-center home. */
+const ISLAND_POSITION_RESET_MS = 8000;
+const ISLAND_DRAG_DEADZONE_PX = 4;
+const ISLAND_SINGLE_CLICK_EXPAND_MS = 230;
+const ISLAND_DOUBLE_CLICK_WINDOW_MS = 350;
 
 /** The three views the drop sequence owns; leaving them stops the engine. */
 const UPLOAD_VIEWS: ReadonlySet<IslandViewName> = new Set(["upload", "uploading", "choose"]);
@@ -89,6 +94,23 @@ export class Island {
   private width = new Tracked(NOTCH_W);
   private height = new Tracked(0);
   private radius = new Tracked(ROUNDED_CORNER);
+  private offsetX = new Tracked(0);
+  private offsetY = new Tracked(0);
+  private islandDragging = false;
+  private islandGrabMode = false;
+  private islandGrabOrigin = { x: 0, y: 0, ox: 0, oy: 0 };
+  private islandDragPress: {
+    startX: number;
+    startY: number;
+    origOx: number;
+    origOy: number;
+    isDoubleClick: boolean;
+    wasCompact: boolean;
+  } | null = null;
+  private lastIslandPressAt = 0;
+  private lastIslandPressPos = { x: 0, y: 0 };
+  private pendingExpandTimer: number | null = null;
+  private positionResetTimer: number | null = null;
   private botCx = new Spring(46, 0.42, 0.85);
   private botCy = new Spring(27, 0.42, 0.92);
   private botSize = new Spring(10, 0.42, 0.85);
@@ -638,12 +660,18 @@ export class Island {
       this.foldApproval();
       return;
     }
+    if (this.pendingExpandTimer != null) {
+      window.clearTimeout(this.pendingExpandTimer);
+      this.pendingExpandTimer = null;
+    }
+    this.workflowNoteOpened = false;
     State.isPinned = false;
     this.fsm.pinned = false;
     // Drive the state machine rather than the mode: setting the mode behind its
     // back left it thinking the island was still open, and a click on the compact
     // island then did nothing — the island could never be reopened.
     this.fsm.forcePetit();
+    this.bumpPositionActivity();
   }
 
   /** Alert from the hook server: open on this view. Pinned alerts never auto-close. */
@@ -1075,6 +1103,146 @@ export class Island {
     });
   }
 
+  private isIslandDisplaced(): boolean {
+    return (
+      Math.abs(this.offsetX.value) > 0.5 ||
+      Math.abs(this.offsetY.value) > 0.5 ||
+      this.offsetX.animating ||
+      this.offsetY.animating
+    );
+  }
+
+  private clampIslandOffset(
+    ox: number,
+    oy: number,
+    w = this.width.value,
+    hh = this.height.value,
+  ): { ox: number; oy: number } {
+    const viewportW = Math.max(w + 16, window.innerWidth || State.screenSize.width || PANEL_W);
+    const viewportH = Math.max(hh + 16, window.innerHeight || State.screenSize.height || PANEL_H);
+    const maxOx = Math.max(0, (viewportW - w) / 2 - 8);
+    const maxOy = Math.max(0, viewportH - hh - 8);
+    return {
+      ox: clamp(ox, -maxOx, maxOx),
+      oy: clamp(oy, 0, maxOy),
+    };
+  }
+
+  private bumpPositionActivity() {
+    if (this.positionResetTimer != null) {
+      window.clearTimeout(this.positionResetTimer);
+      this.positionResetTimer = null;
+    }
+    if (!this.isIslandDisplaced() && !this.islandDragging && !this.islandGrabMode) {
+      return;
+    }
+    this.positionResetTimer = window.setTimeout(() => {
+      this.positionResetTimer = null;
+      this.resetIslandPositionToHome();
+    }, ISLAND_POSITION_RESET_MS);
+  }
+
+  private resetIslandPositionToHome() {
+    if (this.positionResetTimer != null) {
+      window.clearTimeout(this.positionResetTimer);
+      this.positionResetTimer = null;
+    }
+    if (this.islandDragging) {
+      this.bumpPositionActivity();
+      return;
+    }
+    if (this.islandGrabMode) {
+      this.setIslandGrabMode(false);
+    }
+    if (Math.abs(this.offsetX.value) > 0.5 || Math.abs(this.offsetY.value) > 0.5) {
+      Sound.play("peek");
+      this.offsetX.springTo(0, 0.58, 0.84);
+      this.offsetY.springTo(0, 0.58, 0.84);
+      this.ensureRunning();
+    }
+  }
+
+  private setIslandGrabMode(on: boolean, clientX = 0, clientY = 0) {
+    this.islandGrabMode = on;
+    if (on) {
+      this.islandGrabOrigin = {
+        x: clientX,
+        y: clientY,
+        ox: this.offsetX.value,
+        oy: this.offsetY.value,
+      };
+      this.fsm.cancelTimers();
+      void Bridge.setIslandDragging(true);
+      this.applyGeometry();
+      this.bumpPositionActivity();
+    } else {
+      void Bridge.setIslandDragging(false);
+      this.pushedRect = { x: -1, y: -1, w: -1, h: -1 };
+      this.applyGeometry();
+      this.bumpPositionActivity();
+      if (State.mode === "expanded" && !this.wasInIsland && !State.isPinned) {
+        this.fsm.mouseLeft();
+      }
+    }
+  }
+
+  private isInteractiveTarget(target: EventTarget | null): boolean {
+    if (!(target instanceof Element)) return false;
+    return Boolean(
+      target.closest(
+        "button, input, textarea, select, a, label, [role='button'], .p3-pill, .pill, .chat-log, .wf-todo-list, .p8-breakdown-grid",
+      ),
+    );
+  }
+
+  private finishIslandDragPress(clientX: number, clientY: number) {
+    const press = this.islandDragPress;
+    this.islandDragPress = null;
+    if (!press) return;
+
+    if (this.islandDragging) {
+      this.islandDragging = false;
+      void Bridge.setIslandDragging(false);
+      if (Math.hypot(this.offsetX.value, this.offsetY.value) < 24) {
+        this.offsetX.springTo(0, 0.45, 0.85);
+        this.offsetY.springTo(0, 0.45, 0.85);
+        this.ensureRunning();
+      }
+      this.pushedRect = { x: -1, y: -1, w: -1, h: -1 };
+      this.applyGeometry();
+      this.bumpPositionActivity();
+      if (State.mode === "expanded" && !this.wasInIsland && !State.isPinned) {
+        this.fsm.mouseLeft();
+      }
+      return;
+    }
+
+    if (press.isDoubleClick) {
+      // Stationary double-click unlocks free-move grab mode so moving the cursor
+      // carries the island until the next click (or 8s inactivity).
+      Sound.play("blip");
+      this.setIslandGrabMode(true, clientX, clientY);
+      return;
+    }
+
+    void Bridge.setIslandDragging(false);
+    this.pushedRect = { x: -1, y: -1, w: -1, h: -1 };
+    this.applyGeometry();
+
+    if (press.wasCompact && State.mode !== "expanded") {
+      if (this.pendingExpandTimer != null) {
+        window.clearTimeout(this.pendingExpandTimer);
+      }
+      this.pendingExpandTimer = window.setTimeout(() => {
+        this.pendingExpandTimer = null;
+        if (State.mode !== "expanded" && !this.islandDragging && !this.islandGrabMode) {
+          this.fsm.click();
+          this.bumpPositionActivity();
+        }
+      }, ISLAND_SINGLE_CLICK_EXPAND_MS);
+    }
+  }
+
   private animateGeometry(shrinking: boolean) {
     const cfg = getIslandSizeConfig(State.settings.islandSize);
     const { w, h, r } = this.targetSize();
@@ -1091,6 +1259,16 @@ export class Island {
       this.height.springTo(h, 0.5, 0.72);
       this.radius.springTo(r, 0.5, 0.72);
     }
+    if (Math.abs(this.offsetX.value) > 0.5 || Math.abs(this.offsetY.value) > 0.5) {
+      const clamped = this.clampIslandOffset(this.offsetX.value, this.offsetY.value, w, h);
+      if (Math.abs(clamped.ox - this.offsetX.value) > 1) {
+        this.offsetX.springTo(clamped.ox, 0.45, 0.85);
+      }
+      if (Math.abs(clamped.oy - this.offsetY.value) > 1) {
+        this.offsetY.springTo(clamped.oy, 0.45, 0.85);
+      }
+      this.bumpPositionActivity();
+    }
     this.ensureRunning();
   }
 
@@ -1098,14 +1276,19 @@ export class Island {
     const w = this.width.value;
     const hh = this.height.value;
     const r = this.radius.value;
+    const { ox, oy } = this.clampIslandOffset(this.offsetX.value, this.offsetY.value, w, hh);
+    const topR = oy > 1 ? Math.min(r, oy * 1.5) : 0;
     this.islandEl.style.width = `${w}px`;
     this.islandEl.style.height = `${hh}px`;
-    this.islandEl.style.borderRadius = `0 0 ${r}px ${r}px`;
-    this.islandEl.style.transform = `translateX(-50%)`;
+    this.islandEl.style.borderRadius = `${topR}px ${topR}px ${r}px ${r}px`;
+    this.islandEl.style.transform = `translate3d(calc(-50% + ${ox}px), ${oy}px, 0)`;
+    this.islandEl.classList.toggle("is-floating", oy > 2 || Math.abs(ox) > 2);
+    this.islandEl.classList.toggle("is-dragging", this.islandDragging || this.islandGrabMode);
 
     if (this.chargingBarEl) {
       this.chargingBarEl.style.width = `${w}px`;
-      this.chargingBarEl.style.top = `${hh + 6}px`;
+      this.chargingBarEl.style.top = `${oy + hh + 6}px`;
+      this.chargingBarEl.style.left = `calc(50% + ${ox}px)`;
     }
 
     // These follow the island as it resizes, so they belong here rather than in
@@ -1117,9 +1300,19 @@ export class Island {
 
     const extraH = this.isChargingBarVisible() ? CHARGING_BAR_EXTRA_H : 0;
     const viewportW = window.innerWidth || this.windowSize.w || PANEL_W;
-    const rect = { x: Math.max(0, (viewportW - w) / 2), y: 0, w, h: hh + extraH };
+    const rect = {
+      x: Math.max(0, (viewportW - w) / 2 + ox),
+      y: Math.max(0, oy),
+      w,
+      h: hh + extraH,
+    };
     const p = this.pushedRect;
-    if (Math.abs(p.x - rect.x) > 0.5 || Math.abs(p.w - rect.w) > 0.5 || Math.abs(p.h - rect.h) > 0.5) {
+    if (
+      Math.abs(p.x - rect.x) > 0.5 ||
+      Math.abs(p.y - rect.y) > 0.5 ||
+      Math.abs(p.w - rect.w) > 0.5 ||
+      Math.abs(p.h - rect.h) > 0.5
+    ) {
       this.pushedRect = rect;
       void Bridge.setIslandRect(rect.x, rect.y, rect.w, rect.h);
     }
@@ -1129,9 +1322,15 @@ export class Island {
   private islandRect(): { x: number; y: number; w: number; h: number } {
     const w = this.width.value;
     const hh = this.height.value;
+    const { ox, oy } = this.clampIslandOffset(this.offsetX.value, this.offsetY.value, w, hh);
     const extraH = this.isChargingBarVisible() ? CHARGING_BAR_EXTRA_H : 0;
     const viewportW = window.innerWidth || this.windowSize.w || PANEL_W;
-    return { x: Math.max(0, (viewportW - w) / 2), y: 0, w, h: hh + extraH };
+    return {
+      x: Math.max(0, (viewportW - w) / 2 + ox),
+      y: Math.max(0, oy),
+      w,
+      h: hh + extraH,
+    };
   }
 
   // ── Window collapse (hidden → tiny wake strip, zero polling) ────────────────
@@ -1168,22 +1367,60 @@ export class Island {
 
     this.islandEl.addEventListener("mousedown", (e) => {
       Sound.resume();
-      State.lastActivity = performance.now();
-      // A press on Mochi may become a drag out to the desktop.
-      if (e.button === 0 && this.isBotHit(e.clientX, e.clientY)) {
-        this.botPress = { x: e.clientX, y: e.clientY };
+      const now = performance.now();
+      State.lastActivity = now;
+      this.bumpPositionActivity();
+
+      if (this.islandGrabMode) {
+        e.preventDefault();
+        e.stopPropagation();
+        Sound.play("blip");
+        this.setIslandGrabMode(false);
+        return;
       }
+
       // Right-click on Mochi opens the wardrobe, and closes it again.
       if (e.button === 2 && this.isBotHit(e.clientX, e.clientY)) {
         this.cancelBotHover();
         this.toggleWardrobe();
         return;
       }
-      if (State.mode !== "expanded") {
-        this.fsm.click();
-        return;
+
+      if (e.button !== 0) return;
+
+      const isDoubleClick =
+        now - this.lastIslandPressAt < ISLAND_DOUBLE_CLICK_WINDOW_MS &&
+        Math.hypot(e.clientX - this.lastIslandPressPos.x, e.clientY - this.lastIslandPressPos.y) < 18;
+      this.lastIslandPressAt = now;
+      this.lastIslandPressPos = { x: e.clientX, y: e.clientY };
+
+      if (isDoubleClick && this.pendingExpandTimer != null) {
+        window.clearTimeout(this.pendingExpandTimer);
+        this.pendingExpandTimer = null;
       }
-      if (this.isBotHit(e.clientX, e.clientY)) {
+
+      const wasCompact = State.mode !== "expanded";
+      const onBotInExpanded = !wasCompact && this.isBotHit(e.clientX, e.clientY);
+      const canStartIslandDrag =
+        wasCompact ||
+        (!this.isInteractiveTarget(e.target) && !onBotInExpanded) ||
+        (isDoubleClick && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement));
+
+      if (canStartIslandDrag) {
+        this.islandDragPress = {
+          startX: e.clientX,
+          startY: e.clientY,
+          origOx: this.offsetX.value,
+          origOy: this.offsetY.value,
+          isDoubleClick,
+          wasCompact,
+        };
+        void Bridge.setIslandDragging(true);
+      }
+
+      // In expanded mode, a press on Mochi may become a drag out to the desktop or a slap.
+      if (onBotInExpanded && !isDoubleClick) {
+        this.botPress = { x: e.clientX, y: e.clientY };
         this.cancelBotHover();
         this.engine.slap();
       }
@@ -1195,8 +1432,49 @@ export class Island {
       if (this.isBotHit(e.clientX, e.clientY)) e.preventDefault();
     });
 
-    // Dragging Mochi out of the island puts him on the desktop.
+    // Dragging the island freely across the screen or dragging Mochi out to the desktop.
     window.addEventListener("mousemove", (e) => {
+      if (this.islandGrabMode) {
+        const dx = e.clientX - this.islandGrabOrigin.x;
+        const dy = e.clientY - this.islandGrabOrigin.y;
+        const { ox, oy } = this.clampIslandOffset(
+          this.islandGrabOrigin.ox + dx,
+          this.islandGrabOrigin.oy + dy,
+        );
+        this.offsetX.jump(ox);
+        this.offsetY.jump(oy);
+        this.applyGeometry();
+        this.bumpPositionActivity();
+        return;
+      }
+
+      if (this.islandDragPress) {
+        if (!(e.buttons & 1)) {
+          this.finishIslandDragPress(e.clientX, e.clientY);
+          return;
+        }
+        const press = this.islandDragPress;
+        const dx = e.clientX - press.startX;
+        const dy = e.clientY - press.startY;
+        if (!this.islandDragging && Math.hypot(dx, dy) > ISLAND_DRAG_DEADZONE_PX) {
+          this.islandDragging = true;
+          this.botPress = null;
+          if (this.pendingExpandTimer != null) {
+            window.clearTimeout(this.pendingExpandTimer);
+            this.pendingExpandTimer = null;
+          }
+          this.fsm.cancelTimers();
+        }
+        if (this.islandDragging) {
+          const { ox, oy } = this.clampIslandOffset(press.origOx + dx, press.origOy + dy);
+          this.offsetX.jump(ox);
+          this.offsetY.jump(oy);
+          this.applyGeometry();
+          this.bumpPositionActivity();
+          return;
+        }
+      }
+
       if (this.desktop.carrying) {
         this.desktop.carry(e.clientX, e.clientY);
         return;
@@ -1214,6 +1492,9 @@ export class Island {
       this.desktop.pickUp(e.clientX, e.clientY);
     });
     window.addEventListener("mouseup", (e) => {
+      if (this.islandDragPress) {
+        this.finishIslandDragPress(e.clientX, e.clientY);
+      }
       this.botPress = null;
       if (this.desktop.carrying) this.desktop.carryEnd(e.clientX, e.clientY);
     });
@@ -1222,11 +1503,18 @@ export class Island {
     // a terminal — so it may fold a waiting card away, as Escape in the notch
     // does on macOS.
     window.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && State.mode === "expanded") {
-        if (State.pendingApproval) this.foldApproval();
-        else if (!State.isPinned) this.collapse();
+      if (e.key === "Escape") {
+        if (this.islandGrabMode) {
+          this.setIslandGrabMode(false);
+          return;
+        }
+        if (State.mode === "expanded") {
+          if (State.pendingApproval) this.foldApproval();
+          else if (!State.isPinned) this.collapse();
+        }
       }
       State.lastActivity = performance.now();
+      this.bumpPositionActivity();
     });
 
     void onDragDrop((e) => this.onDragDrop(e));
@@ -1263,7 +1551,7 @@ export class Island {
   onCursor(x: number, y: number) {
     // WebKitGTK can deliver a mousemove after the pointer has left the layer
     // surface; trusting it re-enters the island and the auto-close never runs.
-    if (this.pointerInside === false) {
+    if (this.pointerInside === false && !this.islandDragging && !this.islandGrabMode) {
       x = -10_000;
       y = -10_000;
     }
@@ -1287,6 +1575,9 @@ export class Island {
     }
     if (!inIsland && this.wasInIsland) {
       this.fsm.mouseLeft();
+    }
+    if (inIsland && this.isIslandDisplaced()) {
+      this.bumpPositionActivity();
     }
     this.wasInIsland = inIsland;
 
@@ -1385,6 +1676,8 @@ export class Island {
     this.width.step(dt, nowMs);
     this.height.step(dt, nowMs);
     this.radius.step(dt, nowMs);
+    this.offsetX.step(dt, nowMs);
+    this.offsetY.step(dt, nowMs);
     this.applyGeometry();
     if (this.animStartTimeMs != null && !this.width.animating && !this.height.animating) {
       const elapsed = Math.max(1, Math.round(nowMs - this.animStartTimeMs));
@@ -1452,7 +1745,11 @@ export class Island {
     // sweep — so a hidden island went on burning frames in exactly the states it
     // spends most of its life in. Geometry still has to finish retracting.
     const settling =
-      this.width.animating || this.height.animating || this.radius.animating;
+      this.width.animating ||
+      this.height.animating ||
+      this.radius.animating ||
+      this.offsetX.animating ||
+      this.offsetY.animating;
     const busy = State.mode === "hidden"
       ? settling
       : settling ||
@@ -1572,7 +1869,9 @@ export class Island {
   }
 
   private lookY(): number {
-    return -Math.tanh((State.mouse.y - this.botCy.value) / 200);
+    const rect = this.islandRect();
+    const botScreenY = rect.y + this.botCy.value;
+    return -Math.tanh((State.mouse.y - botScreenY) / 200);
   }
 
   private updateCountdown(nowMs: number) {
