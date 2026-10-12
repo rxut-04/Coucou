@@ -242,7 +242,9 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
   function drawModelButton() {
     const p = providerDef(State.settings.chatProvider);
     modelDot.style.background = p.accent;
-    modelName.textContent = activeModel(State.settings) || t(STRINGS.noModel);
+    const rawModel = activeModel(State.settings);
+    const displayModel = p.id === "opencode" ? rawModel.replace(/^opencode\//, "") : rawModel;
+    modelName.textContent = displayModel || t(STRINGS.noModel);
     modelBtn.classList.toggle("open", picker.isOpen);
     modelBtn.disabled = sending;
   }

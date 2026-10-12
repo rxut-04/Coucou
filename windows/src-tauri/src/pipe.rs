@@ -73,6 +73,22 @@ pub fn pipe_name() -> String {
 pub fn start(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         let name = pipe_name();
+        // Create the terminal event channel
+        let (terminal_tx, mut terminal_rx) = mpsc::unbounded_channel::<TerminalFinished>();
+        app.manage(terminal_tx.clone());
+        // Consumer task: hand every finished terminal command to the island,
+        // which shows the workflow "task is finished" card (core/workflow.ts).
+        let app_for_terminal = app.clone();
+        tauri::async_runtime::spawn(async move {
+            while let Some(event) = terminal_rx.recv().await {
+                log::line(format!("TERMINAL_ENGINE cmd={} duration={} exit={}", event.cmd, event.duration_secs, event.exit_code));
+                let _ = app_for_terminal.emit("terminal-finished", serde_json::json!({
+                    "cmd": event.cmd,
+                    "duration": event.duration_secs,
+                    "exit_code": event.exit_code,
+                }));
+            }
+        });
         // first_pipe_instance also means we refuse to join a pipe somebody else
         // already owns under our name, rather than serving on top of it.
         let mut server = match ServerOptions::new().first_pipe_instance(true).create(&name) {
@@ -112,6 +128,22 @@ pub fn start(app: AppHandle) {
             log::line("no private runtime directory ($XDG_RUNTIME_DIR) — Claude Code hooks are inactive");
             return;
         };
+        // Create the terminal event channel
+        let (terminal_tx, mut terminal_rx) = mpsc::unbounded_channel::<TerminalFinished>();
+        app.manage(terminal_tx.clone());
+        // Consumer task: hand every finished terminal command to the island,
+        // which shows the workflow "task is finished" card (core/workflow.ts).
+        let app_for_terminal = app.clone();
+        tauri::async_runtime::spawn(async move {
+            while let Some(event) = terminal_rx.recv().await {
+                log::line(format!("TERMINAL_ENGINE cmd={} duration={} exit={}", event.cmd, event.duration_secs, event.exit_code));
+                let _ = app_for_terminal.emit("terminal-finished", serde_json::json!({
+                    "cmd": event.cmd,
+                    "duration": event.duration_secs,
+                    "exit_code": event.exit_code,
+                }));
+            }
+        });
         // A socket file left behind by a crash answers nothing and can go. One
         // that answers belongs to a Coucou that is still running: like
         // first_pipe_instance on Windows, we refuse to serve on top of it.
@@ -161,6 +193,18 @@ trait Relay: AsyncRead + AsyncWrite + Unpin {
     }
 }
 
+/// A finished terminal command, forwarded to the engine channel.
+#[derive(Debug, Clone)]
+pub struct TerminalFinished {
+    pub cmd: String,
+    pub duration_secs: f64,
+    pub exit_code: i32,
+}
+
+/// The sender half of the terminal event channel, stored in Tauri managed state.
+pub type TerminalSender = mpsc::UnboundedSender<TerminalFinished>;
+pub type TerminalReceiver = mpsc::UnboundedReceiver<TerminalFinished>;
+
 #[cfg(windows)]
 impl Relay for NamedPipeServer {
     fn finish(&mut self) {
@@ -205,6 +249,29 @@ async fn handle(app: AppHandle, mut pipe: impl Relay) {
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_string();
+
+    if payload
+        .get("cwd")
+        .and_then(Value::as_str)
+        .is_some_and(|cwd| cwd.contains("coucou-chat"))
+    {
+        pipe.finish();
+        return;
+    }
+
+    // Intercept terminal SessionEnd events: send to the engine channel instead of
+    // the island (which would only remove a phantom task pill).
+    if event == "SessionEnd" && payload.get("coucou_agent").and_then(Value::as_str) == Some("terminal") {
+        let cmd = payload.get("cmd").and_then(Value::as_str).unwrap_or("command").to_string();
+        let duration_secs = payload.get("duration").and_then(Value::as_f64).unwrap_or(0.0);
+        let exit_code = payload.get("exit_code").and_then(Value::as_i64).unwrap_or(0) as i32;
+        let finished = TerminalFinished { cmd: cmd.clone(), duration_secs, exit_code };
+        let tx = app.state::<TerminalSender>().clone();
+        let _ = tx.send(finished.clone());
+        log::line(format!("TERMINAL_EVENT cmd={} duration={} exit={}", cmd, duration_secs, exit_code));
+        pipe.finish();
+        return;
+    }
 
     note_session_window(&pipe, &payload, &event);
     // Counts for the weekly recap — never the command, path or prompt itself.

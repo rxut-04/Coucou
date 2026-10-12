@@ -18,6 +18,7 @@ mod local_chat;
 mod log;
 mod net;
 mod openai_compat;
+mod opencode_chat;
 mod pipe;
 mod platform;
 mod recap;
@@ -76,7 +77,16 @@ pub struct BootInfo {
 
 #[tauri::command]
 fn boot(app: AppHandle, shared: State<Shared>) -> BootInfo {
-    let mut settings = shared.settings.lock().unwrap().clone();
+    let mut settings = {
+        let mut guard = shared.settings.lock().unwrap();
+        if (guard.chat_provider.is_empty() || guard.chat_provider == chat::ANTHROPIC)
+            && secrets::get(claude::KEY).is_none()
+            && opencode_chat::is_installed()
+        {
+            guard.chat_provider = chat::OPENCODE.to_string();
+        }
+        guard.clone()
+    };
     // The real state of ~/.claude/settings.json wins over whatever we stored.
     let hooks_status = hooks::status();
     settings.hooks_installed = hooks_status.installed;
