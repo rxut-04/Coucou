@@ -72,9 +72,9 @@ export class Island {
   private width = new Tracked(NOTCH_W);
   private height = new Tracked(0);
   private radius = new Tracked(ROUNDED_CORNER);
-  private botCx = new Spring(46, 0.22, 1.0);
-  private botCy = new Spring(27, 0.22, 1.0);
-  private botSize = new Spring(10, 0.22, 1.0);
+  private botCx = new Spring(46, 0.42, 0.85);
+  private botCy = new Spring(27, 0.42, 0.92);
+  private botSize = new Spring(10, 0.42, 0.85);
 
   private engine = new BotEngine();
   private greeting = new Greeting();
@@ -898,7 +898,7 @@ export class Island {
     return { w, h, r };
   }
 
-  private scheduleWindowResize(targetW: number, targetH: number, collapseMs = 200) {
+  private scheduleWindowResize(targetW: number, targetH: number, collapseMs = 340) {
     const desiredW = Math.max(NOTCH_W, Math.ceil(targetW));
     const desiredH = Math.max(32, Math.ceil(targetH));
 
@@ -925,7 +925,7 @@ export class Island {
         this.windowSize = { w: desiredW, h: desiredH };
         void Bridge.setWindowSize(desiredW, desiredH);
         this.pushLayoutMetrics(targetW, targetH, desiredW, desiredH);
-      }, collapseMs + 10);
+      }, collapseMs + 20);
     }
   }
 
@@ -977,9 +977,9 @@ export class Island {
       this.height.curveTowards(h, cfg.collapseMs);
       this.radius.curveTowards(r, cfg.collapseMs);
     } else {
-      this.width.springTo(w, cfg.expandMs);
-      this.height.springTo(h, cfg.expandMs);
-      this.radius.springTo(r, cfg.expandMs);
+      this.width.springTo(w, 0.5, 0.72);
+      this.height.springTo(h, 0.5, 0.72);
+      this.radius.springTo(r, 0.5, 0.72);
     }
     this.ensureRunning();
   }

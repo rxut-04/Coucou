@@ -214,7 +214,7 @@ body {
   padding: 8px 10px 10px;
   display: flex;
   flex-direction: column;
-  transition: opacity 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: opacity 0.2s ease-in-out;
 }
 
 #header {
@@ -225,7 +225,7 @@ body {
   align-items: flex-start;
   padding: 4px 0 6px;
   margin: 0 -10px;
-  transition: opacity 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: opacity 0.2s ease-in-out;
 }
 
 .tabs {
@@ -293,16 +293,16 @@ body {
   position: absolute;
   inset: 0;
   opacity: 0;
-  transform: translateY(-4px) scale(0.985);
+  transform: scale(0.97);
   pointer-events: none;
-  transition: opacity 0.14s cubic-bezier(0.22, 1, 0.36, 1), transform 0.14s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: opacity 0.16s ease-in;
 }
 
 .view.on {
   opacity: 1;
-  transform: translateY(0) scale(1);
+  transform: scale(1);
   pointer-events: auto;
-  transition: opacity 0.18s cubic-bezier(0.22, 1, 0.36, 1), transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: opacity 0.3s ease-out 0.16s, transform 0.3s cubic-bezier(0.3, 1.2, 0.4, 1) 0.16s;
 }
 
 /* A view that is not on is only transparent, not gone: an infinite animation

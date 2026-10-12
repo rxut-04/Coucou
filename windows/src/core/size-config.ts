@@ -64,8 +64,8 @@ export const ISLAND_SIZE_CONFIGS: Record<IslandSizePreset, IslandSizeConfig> = {
     maxCardContentHeight: 420,
     compactNotchWidth: 340,
     compactNotchHeight: 40,
-    expandMs: 240,
-    collapseMs: 200,
+    expandMs: 500,
+    collapseMs: 340,
   },
   comfortable: {
     preset: "comfortable",
@@ -85,8 +85,8 @@ export const ISLAND_SIZE_CONFIGS: Record<IslandSizePreset, IslandSizeConfig> = {
     maxCardContentHeight: 480,
     compactNotchWidth: 370,
     compactNotchHeight: 44,
-    expandMs: 240,
-    collapseMs: 200,
+    expandMs: 500,
+    collapseMs: 340,
   },
   large: {
     preset: "large",
@@ -106,8 +106,8 @@ export const ISLAND_SIZE_CONFIGS: Record<IslandSizePreset, IslandSizeConfig> = {
     maxCardContentHeight: 540,
     compactNotchWidth: 410,
     compactNotchHeight: 48,
-    expandMs: 240,
-    collapseMs: 200,
+    expandMs: 500,
+    collapseMs: 340,
   },
 };
 

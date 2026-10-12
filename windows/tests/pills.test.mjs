@@ -302,30 +302,31 @@ test("compact avatar and seasonal witch hat never clip at y=0 and window transpa
   assert.equal(islandWin.transparent, true, "island window in tauri.conf.json must have transparent: true");
 });
 
-test("island expand and collapse animations complete within configured expandMs (240ms) and collapseMs (200ms)", async () => {
+test("island expand uses smooth spring and collapse uses 340ms closeCurve", async () => {
   const { getIslandSizeConfig } = await import("../src/core/size-config.ts");
   const { Tracked } = await import("../src/core/anim.ts");
 
   const cfg = getIslandSizeConfig("comfortable");
-  assert.ok(cfg.expandMs >= 200 && cfg.expandMs <= 280, `expandMs (${cfg.expandMs}) must be 200..280ms`);
-  assert.ok(cfg.collapseMs >= 180 && cfg.collapseMs <= 220, `collapseMs (${cfg.collapseMs}) must be 180..220ms`);
+  assert.equal(cfg.expandMs, 500);
+  assert.equal(cfg.collapseMs, 340);
 
   const height = new Tracked(44);
-  height.springTo(160, cfg.expandMs, 1.0, 1000);
+  height.springTo(160, 0.5, 0.72);
   assert.equal(height.animating, true);
-  height.step(0.12, 1120);
-  assert.ok(height.value > 110 && height.value < 160, `mid-expand value (${height.value}) should progress smoothly`);
-  height.step(0.12, 1000 + cfg.expandMs);
+  height.step(0.15, 1150);
+  assert.ok(height.value > 90 && height.value < 175, `mid-expand value (${height.value}) should progress smoothly`);
+  for (let i = 0; i < 40; i++) height.step(0.025, 1150 + i * 25);
   assert.equal(height.animating, false);
   assert.equal(height.value, 160);
 
   height.curveTowards(44, cfg.collapseMs, 2000);
   assert.equal(height.animating, true);
-  height.step(0.1, 2100);
-  assert.ok(height.value > 44 && height.value < 110, `mid-collapse value (${height.value}) should progress smoothly`);
-  height.step(0.1, 2000 + cfg.collapseMs);
+  height.step(0.17, 2170);
+  assert.ok(height.value > 44 && height.value < 130, `mid-collapse value (${height.value}) should progress smoothly`);
+  height.step(0.17, 2000 + cfg.collapseMs);
   assert.equal(height.animating, false);
   assert.equal(height.value, 44);
 });
+
 
 

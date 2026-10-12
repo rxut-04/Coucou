@@ -40,8 +40,7 @@ export function cubicBezier(x1: number, y1: number, x2: number, y2: number): Eas
   };
 }
 
-export const fastEaseOut = cubicBezier(0.22, 1, 0.36, 1);
-export const closeCurve = fastEaseOut;
+export const closeCurve = cubicBezier(0.45, 0, 0.2, 1);
 
 /**
  * SwiftUI-equivalent spring: ω₀ = 2π / response, ζ = dampingFraction.
@@ -54,7 +53,7 @@ export class Spring {
   omega: number;
   zeta: number;
 
-  constructor(value: number, response = 0.24, damping = 1.0) {
+  constructor(value: number, response = 0.5, damping = 0.72) {
     this.value = value;
     this.target = value;
     this.omega = (2 * Math.PI) / response;
@@ -90,8 +89,8 @@ export class Spring {
 }
 
 /**
- * Value driven by a fast cubic-bezier(0.22, 1, 0.36, 1) ease-out curve for both
- * expand (default 240 ms) and collapse (default 200 ms), with zero overshoot.
+ * Value driven either by a spring (growing) or a timed curve (shrinking) —
+ * matches IslandContainer: openSpring for grow, closeEase 340 ms for shrink.
  */
 export class Tracked {
   private spring: Spring;
@@ -118,29 +117,23 @@ export class Tracked {
     this.mode = "idle";
   }
 
-  /** Fast ease-out to `v` (open / grow, default 240 ms). */
-  springTo(v: number, durationOrResponse = 240, _damping = 1.0, now = performance.now()) {
-    const durationMs = durationOrResponse >= 10 ? durationOrResponse : 240;
-    this.curveFrom = this.spring.value;
-    this.curveTo = v;
-    this.curveStart = now;
-    this.curveDur = durationMs;
+  /** Spring to `v` (open / grow). */
+  springTo(v: number, response = 0.5, damping = 0.72) {
+    const resp = response >= 10 ? response / 1000 : response;
+    this.spring.configure(resp, damping);
     this.spring.target = v;
-    this.spring.velocity = 0;
-    this.mode = Math.abs(v - this.spring.value) < 0.05 ? "idle" : "curve";
-    if (this.mode === "idle") this.spring.value = v;
+    this.mode = "spring";
   }
 
-  /** Fast ease-out curve to `v` (close / shrink, default 200 ms), no overshoot. */
-  curveTowards(v: number, durationMs = 200, now = performance.now()) {
+  /** Timed curve to `v` (close / shrink), no overshoot. */
+  curveTowards(v: number, durationMs = 340, now = performance.now()) {
     this.curveFrom = this.spring.value;
     this.curveTo = v;
     this.curveStart = now;
     this.curveDur = durationMs;
     this.spring.target = v;
     this.spring.velocity = 0;
-    this.mode = Math.abs(v - this.spring.value) < 0.05 ? "idle" : "curve";
-    if (this.mode === "idle") this.spring.value = v;
+    this.mode = "curve";
   }
 
   step(dt: number, now = performance.now()) {
@@ -153,7 +146,7 @@ export class Tracked {
       }
     } else if (this.mode === "curve") {
       const p = clamp((now - this.curveStart) / Math.max(1, this.curveDur), 0, 1);
-      this.spring.value = lerp(this.curveFrom, this.curveTo, fastEaseOut(p));
+      this.spring.value = lerp(this.curveFrom, this.curveTo, closeCurve(p));
       if (p >= 1) {
         this.spring.value = this.curveTo;
         this.spring.velocity = 0;
