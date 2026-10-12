@@ -181,16 +181,16 @@ pub struct ScoreWeightsConfig {
 impl Default for ScoreWeightsConfig {
     fn default() -> Self {
         Self {
-            base_score: 15.0,
-            points_per_focus_minute: 1.2,
-            max_focus_points: 45.0,
-            points_per_completed_task: 8.0,
-            max_task_points: 24.0,
-            points_per_daily_goal: 7.0,
-            max_goal_points: 21.0,
+            base_score: 0.0,
+            points_per_focus_minute: 1.6,
+            max_focus_points: 50.0,
+            points_per_completed_task: 12.0,
+            max_task_points: 30.0,
+            points_per_daily_goal: 8.0,
+            max_goal_points: 24.0,
             points_per_productive_browser_min: 0.5,
             max_productive_browser_points: 10.0,
-            points_per_agent_run: 1.5,
+            points_per_agent_run: 2.0,
             max_agent_points: 10.0,
             penalty_per_distracting_browser_min: 1.0,
             xp_per_focus_minute: 10,
@@ -247,6 +247,8 @@ pub struct DbState {
     lock: Mutex<()>,
 }
 
+const LOCAL_OFFSET_SECS: i64 = 19_800; // IST (+05:30)
+
 fn unix_now() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -254,10 +256,7 @@ fn unix_now() -> i64 {
         .unwrap_or(0)
 }
 
-fn today_date_string() -> String {
-    // Convert unix timestamp to YYYY-MM-DD (UTC/local day bucket)
-    let secs = unix_now() + 19_800; // IST (+05:30)
-    let days = secs.div_euclid(86_400);
+fn civil_date_and_weekday_from_days(days: i64) -> (String, &'static str) {
     // Civil date from days since 1970-01-01 (Howard Hinnant algorithm)
     let z = days + 719_468;
     let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
@@ -269,7 +268,35 @@ fn today_date_string() -> String {
     let d = doy - (153 * mp + 2) / 5 + 1;
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let year = if m <= 2 { y + 1 } else { y };
-    format!("{year:04}-{m:02}-{d:02}")
+    // 1970-01-01 was Thursday
+    let w = (days + 3).rem_euclid(7);
+    let weekday = match w {
+        0 => "Mon",
+        1 => "Tue",
+        2 => "Wed",
+        3 => "Thu",
+        4 => "Fri",
+        5 => "Sat",
+        _ => "Sun",
+    };
+    (format!("{year:04}-{m:02}-{d:02}"), weekday)
+}
+
+/// Returns `(start_unix, end_unix, "YYYY-MM-DD", weekday_short)` for the local calendar day `days_ago` days before today.
+/// `start_unix` is exact local midnight `00:00:00` for that day.
+fn day_bounds_unix(days_ago: i64) -> (i64, i64, String, &'static str) {
+    let local_now = unix_now() + LOCAL_OFFSET_SECS;
+    let today_days = local_now.div_euclid(86_400);
+    let target_days = today_days - days_ago;
+    let start_local = target_days * 86_400;
+    let start_unix = start_local - LOCAL_OFFSET_SECS;
+    let end_unix = start_unix + 86_400;
+    let (date_str, weekday) = civil_date_and_weekday_from_days(target_days);
+    (start_unix, end_unix, date_str, weekday)
+}
+
+fn today_date_string() -> String {
+    day_bounds_unix(0).2
 }
 
 pub fn default_db_path() -> PathBuf {
@@ -511,6 +538,14 @@ impl DbState {
                  created_at INTEGER NOT NULL,
                  completed_at INTEGER
              );
+             CREATE TABLE IF NOT EXISTS daily_task_activity (
+                 day TEXT NOT NULL,
+                 task_title TEXT NOT NULL,
+                 app_class TEXT NOT NULL DEFAULT '',
+                 active_secs INTEGER NOT NULL DEFAULT 0,
+                 updated_at INTEGER NOT NULL DEFAULT 0,
+                 PRIMARY KEY (day, task_title, app_class)
+             );
              CREATE TABLE IF NOT EXISTS workspace_context (
                  id INTEGER PRIMARY KEY CHECK (id = 1),
                  last_project TEXT NOT NULL DEFAULT 'Coucou',
@@ -559,43 +594,83 @@ impl DbState {
             let _ = ins_ctx.step()?;
         }
 
-        // Seed 3 daily goals for today if none exist yet
-        let today = today_date_string();
-        let goal_count_stmt = Statement::prepare(
-            &conn,
-            "SELECT COUNT(*) FROM daily_goals WHERE day = ?1;",
-        )?;
-        goal_count_stmt.bind_text(1, &today)?;
-        let goal_count = if goal_count_stmt.step()? {
-            goal_count_stmt.col_i64(0)
-        } else {
-            0
-        };
-        drop(goal_count_stmt);
+        // Clean up any legacy auto-checked demo goal where completed_at == created_at
+        let _ = conn.exec(
+            "UPDATE daily_goals SET done = 0, completed_at = 0
+             WHERE title = 'Ship core feature milestone' AND done = 1 AND completed_at = created_at;",
+        );
 
-        if goal_count == 0 {
-            let now = unix_now();
-            let defaults = [
-                (1_i64, "Ship core feature milestone", 1_i64),
-                (2_i64, "Verify Wayland & SQLite tests", 0_i64),
-                (3_i64, "Clean git commit & review", 0_i64),
-            ];
-            for (slot, title, done) in defaults {
-                let ins = Statement::prepare(
-                    &conn,
-                    "INSERT INTO daily_goals (day, slot, title, done, created_at, completed_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6);",
-                )?;
-                ins.bind_text(1, &today)?;
-                ins.bind_i64(2, slot)?;
-                ins.bind_text(3, title)?;
-                ins.bind_i64(4, done)?;
-                ins.bind_i64(5, now)?;
-                ins.bind_i64(6, if done == 1 { now } else { 0 })?;
-                let _ = ins.step()?;
+        let today = today_date_string();
+        Self::ensure_today_goals_in_conn(&conn, &today);
+        Ok(())
+    }
+
+    fn ensure_today_goals_in_conn(conn: &Connection, today: &str) {
+        let goal_count = Statement::prepare(
+            conn,
+            "SELECT COUNT(*) FROM daily_goals WHERE day = ?1;",
+        )
+        .ok()
+        .and_then(|s| {
+            let _ = s.bind_text(1, today);
+            if s.step().unwrap_or(false) {
+                Some(s.col_i64(0))
+            } else {
+                None
+            }
+        })
+        .unwrap_or(0);
+
+        if goal_count > 0 {
+            return;
+        }
+
+        let already_seeded = Statement::prepare(
+            conn,
+            "SELECT COUNT(*) FROM event_log WHERE kind = 'daily_goals_seeded' AND payload = ?1;",
+        )
+        .ok()
+        .and_then(|s| {
+            let _ = s.bind_text(1, today);
+            if s.step().unwrap_or(false) {
+                Some(s.col_i64(0) > 0)
+            } else {
+                None
+            }
+        })
+        .unwrap_or(false);
+
+        if already_seeded {
+            return;
+        }
+
+        let now = unix_now();
+        let defaults = [
+            (1_i64, "Ship core feature milestone"),
+            (2_i64, "Verify Wayland & SQLite tests"),
+            (3_i64, "Clean git commit & review"),
+        ];
+        for (slot, title) in defaults {
+            if let Ok(ins) = Statement::prepare(
+                conn,
+                "INSERT INTO daily_goals (day, slot, title, done, created_at, completed_at)
+                 VALUES (?1, ?2, ?3, 0, ?4, 0);",
+            ) {
+                let _ = ins.bind_text(1, today);
+                let _ = ins.bind_i64(2, slot);
+                let _ = ins.bind_text(3, title);
+                let _ = ins.bind_i64(4, now);
+                let _ = ins.step();
             }
         }
-        Ok(())
+        if let Ok(ev) = Statement::prepare(
+            conn,
+            "INSERT INTO event_log (ts, kind, payload) VALUES (?1, 'daily_goals_seeded', ?2);",
+        ) {
+            let _ = ev.bind_i64(1, now);
+            let _ = ev.bind_text(2, today);
+            let _ = ev.step();
+        }
     }
 
     pub fn log_event(&self, kind: &str, payload: &str) {
@@ -1112,6 +1187,72 @@ impl DbState {
         stats
     }
 
+    pub fn record_task_activity(&self, task_title: &str, app_class: &str, delta_secs: i64) -> bool {
+        let clamped = delta_secs.clamp(1, 300);
+        let clean_task = {
+            let t = task_title.trim();
+            if t.is_empty() {
+                "Deep work session"
+            } else {
+                t
+            }
+        };
+        let clean_app = {
+            let a = app_class.trim();
+            if a.is_empty() {
+                "workspace"
+            } else {
+                a
+            }
+        };
+        let today = today_date_string();
+        let now = unix_now();
+        let Ok(_guard) = self.lock.lock() else {
+            return false;
+        };
+        let Ok(conn) = Connection::open(&self.path) else {
+            return false;
+        };
+        let Ok(stmt) = Statement::prepare(
+            &conn,
+            "INSERT INTO daily_task_activity (day, task_title, app_class, active_secs, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(day, task_title, app_class)
+             DO UPDATE SET active_secs = active_secs + ?4, updated_at = ?5;",
+        ) else {
+            return false;
+        };
+        let _ = stmt.bind_text(1, &today);
+        let _ = stmt.bind_text(2, clean_task);
+        let _ = stmt.bind_text(3, clean_app);
+        let _ = stmt.bind_i64(4, clamped);
+        let _ = stmt.bind_i64(5, now);
+        stmt.step().is_ok()
+    }
+
+    fn renumber_today_goal_slots(conn: &Connection, today: &str) {
+        let mut ids = Vec::new();
+        if let Ok(stmt) = Statement::prepare(
+            conn,
+            "SELECT id FROM daily_goals WHERE day = ?1 ORDER BY slot ASC, id ASC;",
+        ) {
+            let _ = stmt.bind_text(1, today);
+            while stmt.step().unwrap_or(false) {
+                ids.push(stmt.col_i64(0));
+            }
+        }
+        for (idx, id) in ids.into_iter().enumerate() {
+            if let Ok(upd) = Statement::prepare(
+                conn,
+                "UPDATE daily_goals SET slot = ?1 WHERE id = ?2;",
+            ) {
+                let _ = upd.bind_i64(1, (idx as i64) + 1);
+                let _ = upd.bind_i64(2, id);
+                let _ = upd.step();
+            }
+        }
+    }
+
     pub fn daily_goals_list(&self) -> Vec<DailyGoalRecord> {
         let today = today_date_string();
         let Ok(_guard) = self.lock.lock() else {
@@ -1120,13 +1261,14 @@ impl DbState {
         let Ok(conn) = Connection::open(&self.path) else {
             return Vec::new();
         };
+        Self::ensure_today_goals_in_conn(&conn, &today);
         let Ok(stmt) = Statement::prepare(
             &conn,
             "SELECT id, day, slot, title, done, created_at, COALESCE(completed_at, 0)
              FROM daily_goals
              WHERE day = ?1
              ORDER BY slot ASC, id ASC
-             LIMIT 3;",
+             LIMIT 12;",
         ) else {
             return Vec::new();
         };
@@ -1147,7 +1289,7 @@ impl DbState {
     }
 
     pub fn daily_goal_set(&self, slot: i64, title: &str) -> Vec<DailyGoalRecord> {
-        let clean_slot = slot.clamp(1, 3);
+        let clean_slot = slot.clamp(1, 12);
         let clean_title = title.trim();
         if clean_title.is_empty() {
             return self.daily_goals_list();
@@ -1156,6 +1298,7 @@ impl DbState {
         let now = unix_now();
         if let Ok(_guard) = self.lock.lock() {
             if let Ok(conn) = Connection::open(&self.path) {
+                Self::ensure_today_goals_in_conn(&conn, &today);
                 let existing_id = Statement::prepare(
                     &conn,
                     "SELECT id FROM daily_goals WHERE day = ?1 AND slot = ?2 LIMIT 1;",
@@ -1196,6 +1339,73 @@ impl DbState {
         self.log_event(
             "daily_goal_set",
             &serde_json::json!({ "slot": clean_slot, "title": clean_title }).to_string(),
+        );
+        self.daily_goals_list()
+    }
+
+    pub fn daily_goal_add(&self, title: &str) -> Vec<DailyGoalRecord> {
+        let clean_title = title.trim();
+        if clean_title.is_empty() {
+            return self.daily_goals_list();
+        }
+        let today = today_date_string();
+        let now = unix_now();
+        if let Ok(_guard) = self.lock.lock() {
+            if let Ok(conn) = Connection::open(&self.path) {
+                Self::ensure_today_goals_in_conn(&conn, &today);
+                let next_slot = Statement::prepare(
+                    &conn,
+                    "SELECT COALESCE(MAX(slot), 0) + 1 FROM daily_goals WHERE day = ?1;",
+                )
+                .ok()
+                .and_then(|s| {
+                    let _ = s.bind_text(1, &today);
+                    if s.step().unwrap_or(false) {
+                        Some(s.col_i64(0).clamp(1, 12))
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or(1);
+
+                if let Ok(ins) = Statement::prepare(
+                    &conn,
+                    "INSERT INTO daily_goals (day, slot, title, done, created_at, completed_at)
+                     VALUES (?1, ?2, ?3, 0, ?4, 0);",
+                ) {
+                    let _ = ins.bind_text(1, &today);
+                    let _ = ins.bind_i64(2, next_slot);
+                    let _ = ins.bind_text(3, clean_title);
+                    let _ = ins.bind_i64(4, now);
+                    let _ = ins.step();
+                }
+                Self::renumber_today_goal_slots(&conn, &today);
+            }
+        }
+        self.log_event(
+            "daily_goal_added",
+            &serde_json::json!({ "title": clean_title }).to_string(),
+        );
+        self.daily_goals_list()
+    }
+
+    pub fn daily_goal_delete(&self, id: i64) -> Vec<DailyGoalRecord> {
+        let today = today_date_string();
+        if let Ok(_guard) = self.lock.lock() {
+            if let Ok(conn) = Connection::open(&self.path) {
+                if let Ok(del) = Statement::prepare(
+                    &conn,
+                    "DELETE FROM daily_goals WHERE id = ?1;",
+                ) {
+                    let _ = del.bind_i64(1, id);
+                    let _ = del.step();
+                }
+                Self::renumber_today_goal_slots(&conn, &today);
+            }
+        }
+        self.log_event(
+            "daily_goal_deleted",
+            &serde_json::json!({ "id": id }).to_string(),
         );
         self.daily_goals_list()
     }
@@ -1261,8 +1471,7 @@ impl DbState {
     }
 
     pub fn morning_recap(&self, force_demo: bool) -> MorningRecapData {
-        let today = today_date_string();
-        let since_24h = unix_now() - 86_400;
+        let (today_start, _today_end, today, _) = day_bounds_unix(0);
 
         // Discover live git branch & most recently modified file in workspace if available
         let mut live_branch = String::new();
@@ -1344,10 +1553,19 @@ impl DbState {
                     "SELECT COUNT(*), COALESCE(SUM(duration_secs), 0)
                      FROM focus_sessions WHERE started_at >= ?1;",
                 ) {
-                    let _ = fs_stmt.bind_i64(1, since_24h);
+                    let _ = fs_stmt.bind_i64(1, today_start);
                     if fs_stmt.step().unwrap_or(false) {
                         focus_sessions = fs_stmt.col_i64(0);
                         focus_secs = fs_stmt.col_i64(1);
+                    }
+                }
+                if let Ok(act_stmt) = Statement::prepare(
+                    &conn,
+                    "SELECT COALESCE(SUM(active_secs), 0) FROM daily_task_activity WHERE day = ?1;",
+                ) {
+                    let _ = act_stmt.bind_text(1, &today);
+                    if act_stmt.step().unwrap_or(false) {
+                        focus_secs += act_stmt.col_i64(0);
                     }
                 }
 
@@ -1355,7 +1573,7 @@ impl DbState {
                     &conn,
                     "SELECT COUNT(*) FROM tasks WHERE status = 'done' AND COALESCE(completed_at, created_at) >= ?1;",
                 ) {
-                    let _ = tk_stmt.bind_i64(1, since_24h);
+                    let _ = tk_stmt.bind_i64(1, today_start);
                     if tk_stmt.step().unwrap_or(false) {
                         tasks_done = tk_stmt.col_i64(0);
                     }
@@ -1365,7 +1583,7 @@ impl DbState {
                     &conn,
                     "SELECT COUNT(*) FROM agent_wait_sessions WHERE ended_at >= ?1;",
                 ) {
-                    let _ = ag_stmt.bind_i64(1, since_24h);
+                    let _ = ag_stmt.bind_i64(1, today_start);
                     if ag_stmt.step().unwrap_or(false) {
                         agent_runs = ag_stmt.col_i64(0);
                     }
@@ -1393,36 +1611,67 @@ impl DbState {
 
     pub fn stats_dashboard(&self) -> StatsDashboardData {
         let (weights, weights_path) = load_score_weights();
-        let today = today_date_string();
-        let now = unix_now();
-        let since_24h = now - 86_400;
+        // Exact local midnight bounds for today (resets cleanly at 00:00 local time)
+        let (today_start, today_end, today, _) = day_bounds_unix(0);
 
         let goals = self.daily_goals_list();
         let goals_done = goals.iter().filter(|g| g.done).count() as i64;
         let goals_total = goals.len() as i64;
 
-        let mut focus_secs_24h: i64 = 0;
+        let mut focus_secs_today: i64 = 0;
+        let mut task_activity_secs_today: i64 = 0;
         let mut focus_secs_all: i64 = 0;
-        let mut tasks_done_24h: i64 = 0;
+        let mut tasks_done_today: i64 = 0;
         let mut tasks_done_all: i64 = 0;
         let mut goals_done_all: i64 = 0;
-        let mut prod_browser_secs_24h: i64 = 0;
-        let mut distract_browser_secs_24h: i64 = 0;
-        let mut agent_runs_24h: i64 = 0;
+        let mut prod_browser_secs_today: i64 = 0;
+        let mut distract_browser_secs_today: i64 = 0;
+        let mut agent_runs_today: i64 = 0;
         let mut agent_runs_all: i64 = 0;
+        let mut top_tasks_today: Vec<(String, String, i64)> = Vec::new();
+        let mut daily_chart = Vec::with_capacity(7);
 
         let mut active_day_set = std::collections::BTreeSet::new();
-        active_day_set.insert(today.clone());
 
         if let Ok(_guard) = self.lock.lock() {
             if let Ok(conn) = Connection::open(&self.path) {
                 if let Ok(stmt) = Statement::prepare(
                     &conn,
-                    "SELECT COALESCE(SUM(duration_secs), 0) FROM focus_sessions WHERE started_at >= ?1;",
+                    "SELECT COALESCE(SUM(duration_secs), 0)
+                     FROM focus_sessions WHERE started_at >= ?1 AND started_at < ?2;",
                 ) {
-                    let _ = stmt.bind_i64(1, since_24h);
+                    let _ = stmt.bind_i64(1, today_start);
+                    let _ = stmt.bind_i64(2, today_end);
                     if stmt.step().unwrap_or(false) {
-                        focus_secs_24h = stmt.col_i64(0);
+                        focus_secs_today = stmt.col_i64(0);
+                    }
+                }
+                if let Ok(stmt) = Statement::prepare(
+                    &conn,
+                    "SELECT COALESCE(SUM(active_secs), 0)
+                     FROM daily_task_activity WHERE day = ?1;",
+                ) {
+                    let _ = stmt.bind_text(1, &today);
+                    if stmt.step().unwrap_or(false) {
+                        task_activity_secs_today = stmt.col_i64(0);
+                    }
+                }
+                if let Ok(stmt) = Statement::prepare(
+                    &conn,
+                    "SELECT task_title, app_class, SUM(active_secs) AS s
+                     FROM daily_task_activity
+                     WHERE day = ?1
+                     GROUP BY task_title, app_class
+                     ORDER BY s DESC
+                     LIMIT 2;",
+                ) {
+                    let _ = stmt.bind_text(1, &today);
+                    while stmt.step().unwrap_or(false) {
+                        top_tasks_today.push((
+                            stmt.col_text(0),
+                            stmt.col_text(1),
+                            stmt.col_i64(2),
+                        ));
                     }
                 }
                 if let Ok(stmt) = Statement::prepare(
@@ -1435,11 +1684,26 @@ impl DbState {
                 }
                 if let Ok(stmt) = Statement::prepare(
                     &conn,
-                    "SELECT COUNT(*) FROM tasks WHERE status = 'done' AND COALESCE(completed_at, created_at) >= ?1;",
+                    "SELECT COALESCE(SUM(active_secs), 0), GROUP_CONCAT(DISTINCT day) FROM daily_task_activity;",
                 ) {
-                    let _ = stmt.bind_i64(1, since_24h);
                     if stmt.step().unwrap_or(false) {
-                        tasks_done_24h = stmt.col_i64(0);
+                        focus_secs_all += stmt.col_i64(0);
+                        for d in stmt.col_text(1).split(',').filter(|s| !s.is_empty()) {
+                            active_day_set.insert(d.to_string());
+                        }
+                    }
+                }
+                if let Ok(stmt) = Statement::prepare(
+                    &conn,
+                    "SELECT COUNT(*) FROM tasks
+                     WHERE status = 'done'
+                       AND COALESCE(completed_at, created_at) >= ?1
+                       AND COALESCE(completed_at, created_at) < ?2;",
+                ) {
+                    let _ = stmt.bind_i64(1, today_start);
+                    let _ = stmt.bind_i64(2, today_end);
+                    if stmt.step().unwrap_or(false) {
+                        tasks_done_today = stmt.col_i64(0);
                     }
                 }
                 if let Ok(stmt) = Statement::prepare(
@@ -1465,21 +1729,23 @@ impl DbState {
                     &conn,
                     "SELECT COALESCE(SUM(CASE WHEN category = 'productive' THEN duration_secs ELSE 0 END), 0),
                             COALESCE(SUM(CASE WHEN category = 'distracting' THEN duration_secs ELSE 0 END), 0)
-                     FROM browser_sessions WHERE started_at >= ?1;",
+                     FROM browser_sessions WHERE started_at >= ?1 AND started_at < ?2;",
                 ) {
-                    let _ = stmt.bind_i64(1, since_24h);
+                    let _ = stmt.bind_i64(1, today_start);
+                    let _ = stmt.bind_i64(2, today_end);
                     if stmt.step().unwrap_or(false) {
-                        prod_browser_secs_24h = stmt.col_i64(0);
-                        distract_browser_secs_24h = stmt.col_i64(1);
+                        prod_browser_secs_today = stmt.col_i64(0);
+                        distract_browser_secs_today = stmt.col_i64(1);
                     }
                 }
                 if let Ok(stmt) = Statement::prepare(
                     &conn,
-                    "SELECT COUNT(*) FROM agent_wait_sessions WHERE ended_at >= ?1;",
+                    "SELECT COUNT(*) FROM agent_wait_sessions WHERE ended_at >= ?1 AND ended_at < ?2;",
                 ) {
-                    let _ = stmt.bind_i64(1, since_24h);
+                    let _ = stmt.bind_i64(1, today_start);
+                    let _ = stmt.bind_i64(2, today_end);
                     if stmt.step().unwrap_or(false) {
-                        agent_runs_24h = stmt.col_i64(0);
+                        agent_runs_today = stmt.col_i64(0);
                     }
                 }
                 if let Ok(stmt) = Statement::prepare(
@@ -1490,31 +1756,138 @@ impl DbState {
                         agent_runs_all = stmt.col_i64(0);
                     }
                 }
+
+                // Compute 7-day chart strictly from each local calendar day's SQLite records
+                for days_ago in (0..7).rev() {
+                    let (d_start, d_end, d_str, d_lbl) = day_bounds_unix(days_ago);
+                    let mut d_focus_secs: i64 = 0;
+                    let mut d_tasks: i64 = 0;
+                    let mut d_goals: i64 = 0;
+                    let mut d_prod_browser_secs: i64 = 0;
+                    let mut d_distract_browser_secs: i64 = 0;
+                    let mut d_agents: i64 = 0;
+
+                    if let Ok(s) = Statement::prepare(
+                        &conn,
+                        "SELECT COALESCE(SUM(duration_secs), 0) FROM focus_sessions WHERE started_at >= ?1 AND started_at < ?2;",
+                    ) {
+                        let _ = s.bind_i64(1, d_start);
+                        let _ = s.bind_i64(2, d_end);
+                        if s.step().unwrap_or(false) {
+                            d_focus_secs += s.col_i64(0);
+                        }
+                    }
+                    if let Ok(s) = Statement::prepare(
+                        &conn,
+                        "SELECT COALESCE(SUM(active_secs), 0) FROM daily_task_activity WHERE day = ?1;",
+                    ) {
+                        let _ = s.bind_text(1, &d_str);
+                        if s.step().unwrap_or(false) {
+                            d_focus_secs += s.col_i64(0);
+                        }
+                    }
+                    if let Ok(s) = Statement::prepare(
+                        &conn,
+                        "SELECT COUNT(*) FROM tasks WHERE status = 'done' AND COALESCE(completed_at, created_at) >= ?1 AND COALESCE(completed_at, created_at) < ?2;",
+                    ) {
+                        let _ = s.bind_i64(1, d_start);
+                        let _ = s.bind_i64(2, d_end);
+                        if s.step().unwrap_or(false) {
+                            d_tasks = s.col_i64(0);
+                        }
+                    }
+                    if let Ok(s) = Statement::prepare(
+                        &conn,
+                        "SELECT COUNT(*) FROM daily_goals WHERE day = ?1 AND done = 1;",
+                    ) {
+                        let _ = s.bind_text(1, &d_str);
+                        if s.step().unwrap_or(false) {
+                            d_goals = s.col_i64(0);
+                        }
+                    }
+                    if let Ok(s) = Statement::prepare(
+                        &conn,
+                        "SELECT COALESCE(SUM(CASE WHEN category = 'productive' THEN duration_secs ELSE 0 END), 0),
+                                COALESCE(SUM(CASE WHEN category = 'distracting' THEN duration_secs ELSE 0 END), 0)
+                         FROM browser_sessions WHERE started_at >= ?1 AND started_at < ?2;",
+                    ) {
+                        let _ = s.bind_i64(1, d_start);
+                        let _ = s.bind_i64(2, d_end);
+                        if s.step().unwrap_or(false) {
+                            d_prod_browser_secs = s.col_i64(0);
+                            d_distract_browser_secs = s.col_i64(1);
+                        }
+                    }
+                    if let Ok(s) = Statement::prepare(
+                        &conn,
+                        "SELECT COUNT(*) FROM agent_wait_sessions WHERE ended_at >= ?1 AND ended_at < ?2;",
+                    ) {
+                        let _ = s.bind_i64(1, d_start);
+                        let _ = s.bind_i64(2, d_end);
+                        if s.step().unwrap_or(false) {
+                            d_agents = s.col_i64(0);
+                        }
+                    }
+
+                    if d_focus_secs > 0 || d_tasks > 0 || d_goals > 0 || d_agents > 0 {
+                        active_day_set.insert(d_str.clone());
+                    }
+
+                    let d_focus_mins = (d_focus_secs / 60).max(if d_focus_secs > 0 { 1 } else { 0 });
+                    let d_prod_mins = (d_prod_browser_secs / 60).max(if d_prod_browser_secs > 0 { 1 } else { 0 });
+                    let d_distract_mins = d_distract_browser_secs / 60;
+
+                    let d_f_pts = ((d_focus_mins as f64) * weights.points_per_focus_minute.max(1.5))
+                        .min(weights.max_focus_points.max(50.0))
+                        .round() as i64;
+                    let d_t_pts = ((d_tasks as f64) * weights.points_per_completed_task.max(12.0))
+                        .min(weights.max_task_points.max(30.0))
+                        .round() as i64;
+                    let d_g_pts = ((d_goals as f64) * weights.points_per_daily_goal.max(8.0))
+                        .min(weights.max_goal_points.max(24.0))
+                        .round() as i64;
+                    let d_b_pts = ((d_prod_mins as f64) * weights.points_per_productive_browser_min)
+                        .min(weights.max_productive_browser_points)
+                        .round() as i64;
+                    let d_a_pts = ((d_agents as f64) * weights.points_per_agent_run.max(2.0))
+                        .min(weights.max_agent_points)
+                        .round() as i64;
+                    let d_pen = ((d_distract_mins as f64) * weights.penalty_per_distracting_browser_min)
+                        .round() as i64;
+                    let d_score = (d_f_pts + d_t_pts + d_g_pts + d_b_pts + d_a_pts - d_pen).clamp(0, 100);
+
+                    daily_chart.push(DailyChartPoint {
+                        day: d_str,
+                        label: if days_ago == 0 { "Today".to_string() } else { d_lbl.to_string() },
+                        score: d_score,
+                        focus_mins: d_focus_mins,
+                        tasks_done: d_tasks,
+                    });
+                }
             }
         }
 
-        let focus_mins_24h = (focus_secs_24h / 60).max(if focus_secs_24h > 0 { 1 } else { 0 });
+        let total_work_secs_today = focus_secs_today + task_activity_secs_today;
+        let focus_mins_today = (total_work_secs_today / 60).max(if total_work_secs_today > 0 { 1 } else { 0 });
         let focus_mins_all = (focus_secs_all / 60).max(if focus_secs_all > 0 { 1 } else { 0 });
-        let prod_browser_mins = (prod_browser_secs_24h / 60).max(if prod_browser_secs_24h > 0 { 1 } else { 0 });
-        let distract_browser_mins = prod_browser_secs_24h
-            .min(0)
-            .abs()
-            + (distract_browser_secs_24h / 60);
+        let prod_browser_mins = (prod_browser_secs_today / 60).max(if prod_browser_secs_today > 0 { 1 } else { 0 });
+        let distract_browser_mins = distract_browser_secs_today / 60;
 
-        let base_pts = weights.base_score.round() as i64;
-        let focus_pts = ((focus_mins_24h as f64) * weights.points_per_focus_minute)
-            .min(weights.max_focus_points)
+        // Score starts at 0 at midnight (00:00) and builds strictly from today's tasks & activity
+        let base_pts: i64 = 0;
+        let focus_pts = ((focus_mins_today as f64) * weights.points_per_focus_minute.max(1.5))
+            .min(weights.max_focus_points.max(50.0))
             .round() as i64;
-        let task_pts = ((tasks_done_24h as f64) * weights.points_per_completed_task)
-            .min(weights.max_task_points)
+        let task_pts = ((tasks_done_today as f64) * weights.points_per_completed_task.max(12.0))
+            .min(weights.max_task_points.max(30.0))
             .round() as i64;
-        let goal_pts = ((goals_done as f64) * weights.points_per_daily_goal)
-            .min(weights.max_goal_points)
+        let goal_pts = ((goals_done as f64) * weights.points_per_daily_goal.max(8.0))
+            .min(weights.max_goal_points.max(24.0))
             .round() as i64;
         let browser_pts = ((prod_browser_mins as f64) * weights.points_per_productive_browser_min)
             .min(weights.max_productive_browser_points)
             .round() as i64;
-        let agent_pts = ((agent_runs_24h as f64) * weights.points_per_agent_run)
+        let agent_pts = ((agent_runs_today as f64) * weights.points_per_agent_run.max(2.0))
             .min(weights.max_agent_points)
             .round() as i64;
         let distract_pen = ((distract_browser_mins as f64) * weights.penalty_per_distracting_browser_min)
@@ -1522,6 +1895,12 @@ impl DbState {
 
         let raw_score = base_pts + focus_pts + task_pts + goal_pts + browser_pts + agent_pts - distract_pen;
         let daily_score = raw_score.clamp(0, 100);
+
+        if let Some(last_pt) = daily_chart.last_mut() {
+            last_pt.score = daily_score;
+            last_pt.focus_mins = focus_mins_today;
+            last_pt.tasks_done = tasks_done_today;
+        }
 
         let total_xp = (focus_mins_all * weights.xp_per_focus_minute)
             + (tasks_done_all * weights.xp_per_completed_task)
@@ -1532,54 +1911,44 @@ impl DbState {
         let current_level_xp = total_xp % xp_per_lvl;
         let level_title = level_title_for(level);
 
+        if daily_score > 0 {
+            active_day_set.insert(today.clone());
+        }
         let streak_days = (active_day_set.len() as i64).max(1);
 
         let formula_doc = format!(
-            "Score = clamp(0..100, {:.0} base + min({:.0}, {:.1}*focusMins) + min({:.0}, {:.0}*tasks) + min({:.0}, {:.0}*goals) + min({:.0}, {:.1}*prodBrowserMins) + min({:.0}, {:.1}*agentRuns) - {:.1}*distractingMins)",
-            weights.base_score,
-            weights.max_focus_points,
-            weights.points_per_focus_minute,
-            weights.max_task_points,
-            weights.points_per_completed_task,
-            weights.max_goal_points,
-            weights.points_per_daily_goal,
+            "Today's Score (resets at 00:00 midnight) = clamp(0..100, min({:.0}, {:.1}*activeTaskMins) + min({:.0}, {:.0}*tasksDone) + min({:.0}, {:.0}*toDosDone) + min({:.0}, {:.1}*researchMins) + min({:.0}, {:.1}*agentRuns) - {:.1}*distractMins)",
+            weights.max_focus_points.max(50.0),
+            weights.points_per_focus_minute.max(1.5),
+            weights.max_task_points.max(30.0),
+            weights.points_per_completed_task.max(12.0),
+            weights.max_goal_points.max(24.0),
+            weights.points_per_daily_goal.max(8.0),
             weights.max_productive_browser_points,
             weights.points_per_productive_browser_min,
             weights.max_agent_points,
-            weights.points_per_agent_run,
+            weights.points_per_agent_run.max(2.0),
             weights.penalty_per_distracting_browser_min,
         );
 
-        let weekly_insight = format!(
-            "🔥 {daily_score}/100 Focus Score · {focus_mins_24h}m deep focus, {tasks_done_24h} tasks shipped, {goals_done}/{goals_total} daily goals done, {agent_runs_24h} AI agent runs reviewed."
-        );
+        let top_task_summary = if !top_tasks_today.is_empty() {
+            let parts: Vec<String> = top_tasks_today
+                .iter()
+                .map(|(t, app, secs)| {
+                    let m = (*secs / 60).max(1);
+                    format!("\"{t}\" ({app} · {m}m)")
+                })
+                .collect();
+            format!(" · Worked on: {}", parts.join(", "))
+        } else if let Some(cur) = self.current_task() {
+            format!(" · Active task: \"{}\"", cur.title)
+        } else {
+            String::new()
+        };
 
-        // Build 7-day chart series ending with today's live score
-        let day_labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Today"];
-        let mut daily_chart = Vec::with_capacity(7);
-        for (i, &lbl) in day_labels.iter().enumerate() {
-            if i == 6 {
-                daily_chart.push(DailyChartPoint {
-                    day: today.clone(),
-                    label: lbl.to_string(),
-                    score: daily_score,
-                    focus_mins: focus_mins_24h,
-                    tasks_done: tasks_done_24h,
-                });
-            } else {
-                // Historical baseline synthesized from SQLite totals + day index
-                let hist_focus = ((focus_mins_all / 6) + ((i as i64 * 7) % 18)).max(15);
-                let hist_tasks = ((tasks_done_all / 5) + ((i as i64) % 3)).max(1);
-                let hist_score = (35 + hist_focus + hist_tasks * 6).clamp(42, 94);
-                daily_chart.push(DailyChartPoint {
-                    day: format!("D-{}", 6 - i),
-                    label: lbl.to_string(),
-                    score: hist_score,
-                    focus_mins: hist_focus,
-                    tasks_done: hist_tasks,
-                });
-            }
-        }
+        let weekly_insight = format!(
+            "Today since 00:00: {focus_mins_today}m active work, {tasks_done_today} tasks done, {goals_done}/{goals_total} to-dos, {agent_runs_today} agent runs{top_task_summary} · Resets at midnight."
+        );
 
         StatsDashboardData {
             day: today,
@@ -1674,6 +2043,16 @@ pub fn task_list(db: State<'_, DbState>, limit: Option<i64>) -> Vec<TaskRecord> 
 }
 
 #[tauri::command]
+pub fn task_activity_record(
+    db: State<'_, DbState>,
+    task_title: String,
+    app_class: String,
+    delta_secs: i64,
+) -> bool {
+    db.record_task_activity(&task_title, &app_class, delta_secs)
+}
+
+#[tauri::command]
 pub fn focus_session_start(
     db: State<'_, DbState>,
     target_secs: Option<i64>,
@@ -1710,6 +2089,16 @@ pub fn daily_goals_list(db: State<'_, DbState>) -> Vec<DailyGoalRecord> {
 #[tauri::command]
 pub fn daily_goal_set(db: State<'_, DbState>, slot: i64, title: String) -> Vec<DailyGoalRecord> {
     db.daily_goal_set(slot, &title)
+}
+
+#[tauri::command]
+pub fn daily_goal_add(db: State<'_, DbState>, title: String) -> Vec<DailyGoalRecord> {
+    db.daily_goal_add(&title)
+}
+
+#[tauri::command]
+pub fn daily_goal_delete(db: State<'_, DbState>, id: i64) -> Vec<DailyGoalRecord> {
+    db.daily_goal_delete(id)
 }
 
 #[tauri::command]
@@ -2044,14 +2433,22 @@ mod tests {
         let (db, dir) = temp_db("phase6");
         let goals = db.daily_goals_list();
         assert_eq!(goals.len(), 3);
-        assert_eq!(goals.iter().filter(|g| g.done).count(), 1);
+        assert_eq!(goals.iter().filter(|g| g.done).count(), 0);
 
         let updated = db.daily_goal_set(2, "Finish Phase 6 morning recap");
         assert_eq!(updated[1].title, "Finish Phase 6 morning recap");
 
+        let _ = db.daily_goal_toggle(updated[0].id);
         let toggled = db.daily_goal_toggle(updated[1].id);
         assert!(toggled[1].done);
         assert_eq!(toggled.iter().filter(|g| g.done).count(), 2);
+
+        let added = db.daily_goal_add("Write unit tests");
+        assert_eq!(added.len(), 4);
+        assert_eq!(added[3].title, "Write unit tests");
+
+        let after_del = db.daily_goal_delete(added[3].id);
+        assert_eq!(after_del.len(), 3);
 
         let recap = db.morning_recap(false);
         assert!(recap.should_show_today);
@@ -2070,10 +2467,17 @@ mod tests {
     #[test]
     fn computes_daily_focus_score_xp_level_streak_and_chart_from_sqlite() {
         let (db, dir) = temp_db("phase8");
+        // Before any activity today, score starts cleanly at 0
+        let initial = db.stats_dashboard();
+        assert_eq!(initial.daily_score, 0);
+
+        db.record_task_activity("Refactor notch UI", "antigravity", 600);
         let s = db.start_focus_session(1500, "Deep work", "antigravity").unwrap();
         db.finish_focus_session(s.id, 1500, "completed");
         let t = db.set_task("Ship Phase 8", "Coucou").unwrap();
         db.complete_task(Some(t.id));
+        let goals = db.daily_goals_list();
+        db.daily_goal_toggle(goals[0].id);
         db.record_browser_session("docs.rs", "productive", "research", 600);
         db.record_agent_wait("antigravity", "antigravity", unix_now() - 30, unix_now(), "done");
 

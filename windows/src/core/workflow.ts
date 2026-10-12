@@ -373,6 +373,29 @@ class WorkflowEngine {
     const goals = await Bridge.dailyGoalSet(slot, clean);
     if (goals) {
       State.dailyGoals = goals;
+      void this.refreshStatsDashboard();
+      Sound.play("blip");
+      State.notify();
+    }
+  }
+
+  async addDailyGoal(title: string) {
+    const clean = title.trim();
+    if (!clean) return;
+    const goals = await Bridge.dailyGoalAdd(clean);
+    if (goals) {
+      State.dailyGoals = goals;
+      void this.refreshStatsDashboard();
+      Sound.play("blip");
+      State.notify();
+    }
+  }
+
+  async deleteDailyGoal(id: number) {
+    const goals = await Bridge.dailyGoalDelete(id);
+    if (goals) {
+      State.dailyGoals = goals;
+      void this.refreshStatsDashboard();
       Sound.play("blip");
       State.notify();
     }
@@ -876,10 +899,48 @@ class WorkflowEngine {
   }
 
   private lastStressUpdatedAt = 0;
+  private activityTickCounter = 0;
+  private lastTrackedDayKey = "";
+
+  private localDayKey(): string {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+
+  private tickDailyTaskActivity() {
+    const todayKey = this.localDayKey();
+    if (!this.lastTrackedDayKey) {
+      this.lastTrackedDayKey = todayKey;
+    } else if (todayKey !== this.lastTrackedDayKey) {
+      // Midnight (00:00) rollover: reset daily goals & daily progress score for the new day
+      this.lastTrackedDayKey = todayKey;
+      void this.initDailyGoalsAndRecap();
+      void this.refreshStatsDashboard();
+    }
+
+    if (State.healthStatus?.isIdle) return;
+
+    this.activityTickCounter += 1;
+    if (this.activityTickCounter >= 15) {
+      this.activityTickCounter = 0;
+      const taskTitle = State.currentTaskRecord?.title || "Deep work session";
+      const appClass =
+        this.currentApp !== "other"
+          ? this.currentApp
+          : State.focusTask?.name || "workspace";
+      void Bridge.taskActivityRecord(taskTitle, appClass, 15).then(() => {
+        void this.refreshStatsDashboard();
+      });
+    }
+  }
 
   private tick() {
     this.tickLayoutStressTest();
     this.detectActiveApp();
+    this.tickDailyTaskActivity();
     this.tickFocusSession();
     this.tickBrowserSession();
     this.tickAgentMonitor();

@@ -427,14 +427,14 @@ export function buildHeader(actions: ViewActions): ViewHost {
     taskInputEl.style.display = editingTask ? "" : "none";
 
     const goals = State.dailyGoals;
-    const goalsTotal = goals.length > 0 ? goals.length : 3;
+    const goalsTotal = goals.length;
     const goalsDone = goals.filter((g) => g.done).length;
     dailyGoalsLabel.textContent = `🎯 ${goalsDone}/${goalsTotal}`;
     dailyGoalsPill.classList.toggle("active", State.showingDailyGoalsCard);
     dailyGoalsPill.classList.toggle("all-done", goalsDone === goalsTotal && goalsTotal > 0);
     dailyGoalsPill.title = goals.length > 0
-      ? `Today's goals (${goalsDone}/${goalsTotal}):\n` + goals.map((g) => `${g.done ? "✅" : "⬜"} ${g.slot}. ${g.title}`).join("\n")
-      : "Click to view & toggle today's 3 daily goals";
+      ? `Today's To-Do (${goalsDone}/${goalsTotal}):\n` + goals.map((g) => `${g.done ? "✅" : "⬜"} ${g.slot}. ${g.title}`).join("\n")
+      : "Click to open today's To-Do list & add tasks";
     morningRecapBtn.classList.toggle("active", State.showingMorningRecap);
 
     const hs = State.healthStatus;
@@ -837,7 +837,7 @@ function buildOverview(actions: ViewActions): ViewHost {
         }
       } else if (State.showingStatsCard && State.statsDashboard) {
         const sd = State.statsDashboard;
-        const key = `stats~${sd.dailyScore}~${sd.totalXp}~${sd.level}~${sd.streakDays}~${sd.dailyChart.map((p) => p.score).join(",")}`;
+        const key = `stats~${sd.dailyScore}~${sd.totalXp}~${sd.level}~${sd.streakDays}~${sd.weeklyInsight}~${sd.dailyChart.map((p) => p.score).join(",")}`;
         if (key !== cardKey) {
           cardKey = key;
           mode = "stats";
@@ -1411,7 +1411,7 @@ function renderStatsDashboardCard(sd: import("../core/bridge").StatsDashboardDat
       "div",
       {
         class: `p8-bar-col ${isToday ? "today" : ""}`,
-        title: `${pt.label} (${pt.day}): Score ${pt.score}/100 · ${pt.focusMins}m focus · ${pt.tasksDone} tasks`,
+        title: `${pt.label} (${pt.day}): Score ${pt.score}/100 · ${pt.focusMins}m active work · ${pt.tasksDone} tasks done`,
       },
       h(
         "div",
@@ -1432,9 +1432,9 @@ function renderStatsDashboardCard(sd: import("../core/bridge").StatsDashboardDat
       "div",
       { class: "int-head p6-card-head" },
       dot("#F59E0B", 7),
-      h("b", { text: `🏆 Score ${sd.dailyScore}/100` }),
+      h("b", { text: `🏆 Today ${sd.dailyScore}/100` }),
       h("span", {
-        text: `${sd.levelTitle} (${sd.totalXp} XP) · 🔥${sd.streakDays}d streak`,
+        text: `${sd.levelTitle} (${sd.totalXp} XP) · 🔥${sd.streakDays}d streak · 🕛 Resets 00:00`,
       }),
       h(
         "button",
@@ -1466,7 +1466,7 @@ function renderStatsDashboardCard(sd: import("../core/bridge").StatsDashboardDat
           ),
           h("span", {
             class: "p8-xp-txt",
-            text: `${sd.currentLevelXp}/${sd.nextLevelXp} XP · Focus+${sd.scoreBreakdown.focusPoints} Tasks+${sd.scoreBreakdown.taskPoints} Goals+${sd.scoreBreakdown.goalPoints}`,
+            text: `${sd.currentLevelXp}/${sd.nextLevelXp} XP · Work +${sd.scoreBreakdown.focusPoints} · Tasks +${sd.scoreBreakdown.taskPoints} · To-Dos +${sd.scoreBreakdown.goalPoints} · Research +${sd.scoreBreakdown.browserPoints} · Agents +${sd.scoreBreakdown.agentPoints}`,
           }),
         ),
         h("div", { class: "p8-insight", text: `💡 ${sd.weeklyInsight}` }),
@@ -1633,6 +1633,159 @@ function renderMorningRecapCard(recap: import("../core/bridge").MorningRecapData
 function renderDailyGoalsCard(): HTMLElement {
   const goals = State.dailyGoals;
   const doneCount = goals.filter((g) => g.done).length;
+
+  const addInput = h("input", {
+    class: "p6-goal-input",
+    type: "text",
+    placeholder: "+ Add a new to-do for today & press Enter...",
+    onclick: (e: Event) => {
+      e.stopPropagation();
+      void Bridge.focusWindow(true);
+    },
+    onfocus: () => {
+      void Bridge.focusWindow(true);
+    },
+    onblur: () => {
+      void Bridge.focusWindow(false);
+    },
+  }) as HTMLInputElement;
+
+  const submitAddGoal = () => {
+    const val = addInput.value.trim();
+    if (!val) return;
+    addInput.value = "";
+    void Bridge.focusWindow(false);
+    void Workflow.addDailyGoal(val);
+  };
+
+  addInput.addEventListener("keydown", (e: KeyboardEvent) => {
+    e.stopPropagation();
+    if (e.key === "Enter") {
+      e.preventDefault();
+      submitAddGoal();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      addInput.blur();
+      void Bridge.focusWindow(false);
+    }
+  });
+
+  const addBtn = h(
+    "button",
+    {
+      class: "p3-btn p6-goal-add-btn",
+      title: "Add to-do item",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        submitAddGoal();
+      },
+    },
+    h("span", { text: "+ Add" }),
+  );
+
+  const buildGoalRow = (g: import("../core/bridge").DailyGoalRecord): HTMLElement => {
+    const textSpan = h("span", {
+      class: "p6-goal-text",
+      text: `${g.slot}. ${g.title}`,
+      title: "Click to toggle done · Double-click or click ✎ to rename",
+    });
+
+    const editInput = h("input", {
+      class: "p6-goal-edit-input",
+      type: "text",
+      value: g.title,
+      style: "display:none",
+      onclick: (e: Event) => e.stopPropagation(),
+    }) as HTMLInputElement;
+
+    let editingRow = false;
+    const startEdit = (e: Event) => {
+      e.stopPropagation();
+      editingRow = true;
+      textSpan.style.display = "none";
+      editInput.style.display = "";
+      editInput.value = g.title;
+      void Bridge.focusWindow(true);
+      requestAnimationFrame(() => {
+        editInput.focus();
+        editInput.select();
+      });
+    };
+
+    const commitEdit = () => {
+      if (!editingRow) return;
+      editingRow = false;
+      const nextVal = editInput.value.trim();
+      editInput.style.display = "none";
+      textSpan.style.display = "";
+      void Bridge.focusWindow(false);
+      if (nextVal && nextVal !== g.title) {
+        void Workflow.setDailyGoal(g.slot, nextVal);
+      }
+    };
+
+    editInput.addEventListener("keydown", (e: KeyboardEvent) => {
+      e.stopPropagation();
+      if (e.key === "Enter") {
+        e.preventDefault();
+        commitEdit();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        editingRow = false;
+        editInput.style.display = "none";
+        textSpan.style.display = "";
+        void Bridge.focusWindow(false);
+      }
+    });
+    editInput.addEventListener("blur", () => commitEdit());
+
+    return h(
+      "div",
+      {
+        class: `p6-goal-item ${g.done ? "done" : ""}`,
+        onclick: (e: Event) => {
+          e.stopPropagation();
+          if (!editingRow) {
+            void Workflow.toggleDailyGoal(g.id);
+          }
+        },
+        ondblclick: startEdit,
+      },
+      h("span", {
+        class: "p6-goal-check",
+        text: g.done ? "✅" : "⬜",
+        title: "Click to toggle completion (+8 pts)",
+      }),
+      textSpan,
+      editInput,
+      h(
+        "div",
+        { class: "p6-goal-actions" },
+        h(
+          "button",
+          {
+            class: "p6-goal-act-btn",
+            title: "Rename to-do item",
+            onclick: startEdit,
+          },
+          h("span", { text: "✎" }),
+        ),
+        h(
+          "button",
+          {
+            class: "p6-goal-act-btn p6-goal-del-btn",
+            title: "Delete to-do item",
+            onclick: (e: Event) => {
+              e.stopPropagation();
+              void Workflow.deleteDailyGoal(g.id);
+            },
+          },
+          h("span", { text: "✕" }),
+        ),
+      ),
+    );
+  };
+
   return h(
     "div",
     { class: "int-card wf-card p6-goals-card" },
@@ -1640,13 +1793,13 @@ function renderDailyGoalsCard(): HTMLElement {
       "div",
       { class: "int-head p6-card-head" },
       dot("#10B981", 7),
-      h("b", { text: `🎯 Daily Goals (${doneCount}/${goals.length || 3})` }),
-      h("span", { text: "Click goal to complete" }),
+      h("b", { text: `🎯 Today's To-Do (${doneCount}/${goals.length})` }),
+      h("span", { text: "+8 pts each · Resets at 00:00" }),
       h(
         "button",
         {
           class: "p3-btn p6-close-btn",
-          title: "Close daily goals",
+          title: "Close daily to-do list",
           onclick: (e: Event) => {
             e.stopPropagation();
             Workflow.toggleDailyGoalsCard();
@@ -1657,22 +1810,21 @@ function renderDailyGoalsCard(): HTMLElement {
     ),
     h(
       "div",
+      { class: "p6-goal-add-row" },
+      addInput,
+      addBtn,
+    ),
+    h(
+      "div",
       { class: "p6-goals-list" },
-      ...goals.map((g) =>
-        h(
-          "button",
-          {
-            class: `p6-goal-item ${g.done ? "done" : ""}`,
-            title: "Click to toggle goal completion",
-            onclick: (e: Event) => {
-              e.stopPropagation();
-              void Workflow.toggleDailyGoal(g.id);
-            },
-          },
-          h("span", { class: "p6-goal-check", text: g.done ? "✅" : "⬜" }),
-          h("span", { class: "p6-goal-text", text: `${g.slot}. ${g.title}` }),
-        ),
-      ),
+      ...(goals.length > 0
+        ? goals.map(buildGoalRow)
+        : [
+            h("div", {
+              class: "p6-goals-empty",
+              text: "No to-dos yet for today — type above & press Enter to add one!",
+            }),
+          ]),
     ),
   );
 }

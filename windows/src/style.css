@@ -2080,31 +2080,87 @@ input[type="range"]::-webkit-slider-thumb {
   padding-top: 1px;
 }
 
+.p6-goal-add-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 3px;
+}
+
+.p6-goal-input,
+.p6-goal-edit-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 22px;
+  border-radius: 6px;
+  border: 1px solid rgba(16, 185, 129, 0.38);
+  background: rgba(0, 0, 0, 0.42);
+  color: var(--ink);
+  font: 500 calc(10.5px * var(--size-font-scale, 1.08)) var(--font);
+  padding: 0 8px;
+  outline: none;
+  transition: border-color 0.14s ease, box-shadow 0.14s ease;
+}
+
+.p6-goal-input:focus,
+.p6-goal-edit-input:focus {
+  border-color: rgba(16, 185, 129, 0.8);
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.18);
+}
+
+.p6-goal-input::placeholder {
+  color: rgba(255, 255, 255, 0.38);
+}
+
+.p6-goal-add-btn {
+  flex: 0 0 auto;
+  height: 22px;
+  padding: 0 9px;
+  background: rgba(16, 185, 129, 0.22);
+  border: 1px solid rgba(16, 185, 129, 0.45);
+  color: #6ee7b7;
+  font: 600 calc(10px * var(--size-font-scale, 1.08)) var(--font);
+}
+
+.p6-goal-add-btn:hover {
+  background: rgba(16, 185, 129, 0.36);
+  color: #d1fae5;
+}
+
 .p6-goals-list {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  padding-top: 2px;
+  padding-top: 4px;
+  max-height: 112px;
+  overflow-y: auto;
 }
 
 .p6-goal-item {
   display: flex;
   align-items: center;
   gap: 6px;
-  border: 0;
+  border: 1px solid rgba(255, 255, 255, 0.04);
   background: rgba(255, 255, 255, 0.04);
-  border-radius: 5px;
-  padding: 2px 8px;
+  border-radius: 6px;
+  padding: 3px 8px;
   color: var(--ink);
   font: 500 calc(10.5px * var(--size-font-scale, 1.08)) var(--font);
   cursor: pointer;
   text-align: left;
   white-space: normal;
   overflow-wrap: anywhere;
+  transition: background 0.12s ease, border-color 0.12s ease;
 }
 
 .p6-goal-item:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.p6-goal-item.done {
+  background: rgba(16, 185, 129, 0.08);
+  border-color: rgba(16, 185, 129, 0.22);
 }
 
 .p6-goal-item.done .p6-goal-text {
@@ -2112,8 +2168,61 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--dim-3);
 }
 
+.p6-goal-check {
+  flex: 0 0 auto;
+  font-size: 11px;
+}
+
 .p6-goal-text {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.p6-goal-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  flex: 0 0 auto;
+  opacity: 0.65;
+  transition: opacity 0.12s ease;
+}
+
+.p6-goal-item:hover .p6-goal-actions {
+  opacity: 1;
+}
+
+.p6-goal-act-btn {
+  border: 0;
+  border-radius: 5px;
+  width: 19px;
+  height: 19px;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--dim-2);
+  font: 600 10px var(--font);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.p6-goal-act-btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+
+.p6-goal-del-btn:hover {
+  background: rgba(239, 68, 68, 0.26);
+  color: #fca5a5;
+}
+
+.p6-goals-empty {
+  font: 400 calc(10px * var(--size-font-scale, 1.08)) var(--font);
+  color: var(--dim-3);
+  padding: 4px 2px;
 }
 
 /* ── Phase 7: Night & Health Mode ("🌿" / "🌙 Night" / "💤 Idle") ─────────── */

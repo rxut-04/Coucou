@@ -206,6 +206,8 @@ export const Bridge = {
   taskComplete: (id?: number) =>
     call<TaskRecord | null>("task_complete", id !== undefined ? { id } : {}),
   taskList: (limit = 20) => call<TaskRecord[]>("task_list", { limit }),
+  taskActivityRecord: (taskTitle: string, appClass: string, deltaSecs: number) =>
+    call<boolean>("task_activity_record", { taskTitle, appClass, deltaSecs }),
   focusSessionStart: (targetSecs = 1500, taskTitle = "", appClass = "") =>
     call<FocusSessionRecord | null>("focus_session_start", { targetSecs, taskTitle, appClass }),
   focusSessionFinish: (id: number, durationSecs: number, status: "completed" | "cancelled") =>
@@ -241,6 +243,10 @@ export const Bridge = {
   dailyGoalsList: () => call<DailyGoalRecord[]>("daily_goals_list"),
   dailyGoalSet: (slot: number, title: string) =>
     call<DailyGoalRecord[]>("daily_goal_set", { slot, title }),
+  dailyGoalAdd: (title: string) =>
+    call<DailyGoalRecord[]>("daily_goal_add", { title }),
+  dailyGoalDelete: (id: number) =>
+    call<DailyGoalRecord[]>("daily_goal_delete", { id }),
   dailyGoalToggle: (id: number) =>
     call<DailyGoalRecord[]>("daily_goal_toggle", { id }),
   morningRecapGet: (forceDemo = false) =>
