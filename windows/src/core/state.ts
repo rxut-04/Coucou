@@ -15,9 +15,11 @@ import { getQuoteForWindow } from "./quotes";
 import {
   Bridge,
   type AgentLiveStatus,
+  type BatteryStatus,
   type DailyGoalRecord,
   type DomainCategory,
   type HealthStatusSnapshot,
+  type MediaStatus,
   type MorningRecapData,
   type StatsDashboardData,
   type TaskRecord,
@@ -538,6 +540,12 @@ class AppState {
   statsDashboard: StatsDashboardData | null = null;
   /** Phase 8: Whether the Stats & Chart view card is open in the main left card. */
   showingStatsCard = false;
+  /** Whether the Pomodoro / Focus Timer control card is open in the main left card. */
+  showingFocusTimerCard = false;
+  /** Live battery & charging status (/sys/class/power_supply). */
+  batteryStatus: BatteryStatus | null = null;
+  /** Live MPRIS / browser media playback status (playerctl). */
+  mediaStatus: MediaStatus | null = null;
   /** Phase A-F: Layout stress test mode ("off" | "on" | "recap" | "agent" | "few" | "compact"). */
   layoutStressMode = "off";
   /** Phase A-F: Extra status badges injected during layout stress test to reach 12+ badges. */

@@ -191,7 +191,7 @@ export function buildHeader(actions: ViewActions): ViewHost {
     "button",
     {
       class: "p3-pill p3-focus-start",
-      title: "Start 25-minute focus session",
+      title: "Start 25-minute Pomodoro focus timer & open timer controls",
       onclick: (e: Event) => {
         e.stopPropagation();
         void Workflow.startFocusSession(1500);
@@ -201,7 +201,14 @@ export function buildHeader(actions: ViewActions): ViewHost {
     h("span", { text: "25m Focus" }),
   );
 
-  const focusTimeSpan = h("span", { class: "p3-focus-time", text: "25:00" });
+  const focusTimeSpan = h(
+    "span",
+    {
+      class: "p3-focus-time",
+      text: "25:00",
+      title: "Click to open Pomodoro Timer controls in main pill",
+    },
+  );
   const focusPauseBtn = h(
     "button",
     {
@@ -229,7 +236,14 @@ export function buildHeader(actions: ViewActions): ViewHost {
 
   const focusActivePill = h(
     "div",
-    { class: "p3-pill p3-focus-active" },
+    {
+      class: "p3-pill p3-focus-active",
+      title: "Click to toggle Pomodoro Timer controls in main pill",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        Workflow.toggleFocusTimerCard();
+      },
+    },
     dot("#22c55e", 6),
     focusTimeSpan,
     focusPauseBtn,
@@ -454,11 +468,13 @@ export function buildHeader(actions: ViewActions): ViewHost {
     if (!session) {
       focusStartBtn.style.display = "";
       focusActivePill.style.display = "none";
+      focusStartBtn.classList.toggle("active", State.showingFocusTimerCard);
     } else {
       focusStartBtn.style.display = "none";
       focusActivePill.style.display = "";
       focusTimeSpan.textContent = `${session.paused ? "⏸ " : ""}${formatMmSs(session.remainingSecs)}`;
       focusActivePill.classList.toggle("paused", session.paused);
+      focusActivePill.classList.toggle("active", State.showingFocusTimerCard);
       focusPauseBtn.textContent = session.paused ? "▶" : "⏸";
     }
 
@@ -590,6 +606,26 @@ export function buildHeader(actions: ViewActions): ViewHost {
 
 // ── Overview ──────────────────────────────────────────────────────────────────
 
+function isBrowserTask(task: AgentTask | null): boolean {
+  if (!task) return false;
+  const cls = (task.windowClass || "").toLowerCase();
+  return (
+    task.name === "Browser" ||
+    cls.includes("brave") ||
+    cls.includes("chrome") ||
+    cls.includes("chromium") ||
+    cls.includes("firefox") ||
+    cls.includes("edge")
+  );
+}
+
+function shouldShowBrowserMediaCard(task: AgentTask | null): boolean {
+  if (!isBrowserTask(task)) return false;
+  if (State.mediaStatus?.active) return true;
+  const cap = (task?.windowCaption || "").toLowerCase();
+  return cap.includes("youtube") || cap.includes("spotify") || cap.includes("soundcloud");
+}
+
 function buildOverview(actions: ViewActions): ViewHost {
   /** The diff open in the left card (a FileDiff id), as activeDiffId on macOS. */
   let activeDiffId: number | null = null;
@@ -617,6 +653,8 @@ function buildOverview(actions: ViewActions): ViewHost {
   // Opened from a plan pill in the header: stands in for the left card.
   const plan = new PlanCard();
   let planTimer: number | null = null;
+  const focusTimerHost = buildFocusTimerHost();
+  const mediaPlayerHost = buildMediaPlayerHost();
 
   const el = h("div", { class: "view overview" },
     h("div", { class: "left" }, left),
@@ -626,7 +664,19 @@ function buildOverview(actions: ViewActions): ViewHost {
   let pillIds = "";
   let detailOpen = false;
   let lastFocus: string | null = null;
-  let mode: "ticker" | "card" | "plan" | "diff" | "workflow" | "recap" | "goals" | "health" | "stats" | null = null;
+  let mode:
+    | "ticker"
+    | "card"
+    | "plan"
+    | "diff"
+    | "workflow"
+    | "recap"
+    | "goals"
+    | "health"
+    | "stats"
+    | "focustimer"
+    | "media"
+    | null = null;
   let cardKey = "";
 
   // Leaving the overview or folding the island closes the diff, as on macOS.
@@ -730,6 +780,14 @@ function buildOverview(actions: ViewActions): ViewHost {
         mode = null;
         cardKey = "";
       }
+      if (mode === "focustimer" && !State.showingFocusTimerCard) {
+        mode = null;
+        cardKey = "";
+      }
+      if (mode === "media" && !shouldShowBrowserMediaCard(task)) {
+        mode = null;
+        cardKey = "";
+      }
 
       if (planOpen) {
         if (mode !== "plan") {
@@ -738,6 +796,14 @@ function buildOverview(actions: ViewActions): ViewHost {
           mode = "plan";
         }
         plan.sync();
+      } else if (State.showingFocusTimerCard) {
+        if (mode !== "focustimer") {
+          clear(leftBody);
+          leftBody.append(focusTimerHost.el);
+          mode = "focustimer";
+          cardKey = "focustimer";
+        }
+        focusTimerHost.sync();
       } else if (State.showingMorningRecap && State.morningRecap) {
         const r = State.morningRecap;
         const goalsKey = State.dailyGoals.map((g) => `${g.id}:${g.done}:${g.title}`).join("|");
@@ -759,7 +825,10 @@ function buildOverview(actions: ViewActions): ViewHost {
         }
       } else if (State.showingHealthCard) {
         const hs = State.healthStatus;
-        const key = `health~${hs?.isNightMode ?? false}~${hs?.isIdle ?? false}~${hs?.eyeRemainingSecs ?? 0}~${hs?.waterRemainingSecs ?? 0}~${hs?.postureRemainingSecs ?? 0}~${hs?.activeReminder?.kind ?? ""}`;
+        const eyeM = Math.ceil((hs?.eyeRemainingSecs ?? 0) / 60);
+        const waterM = Math.ceil((hs?.waterRemainingSecs ?? 0) / 60);
+        const postureM = Math.ceil((hs?.postureRemainingSecs ?? 0) / 60);
+        const key = `health~${hs?.isNightMode ?? false}~${hs?.isIdle ?? false}~${eyeM}~${waterM}~${postureM}~${hs?.activeReminder?.kind ?? ""}`;
         if (key !== cardKey) {
           cardKey = key;
           mode = "health";
@@ -819,6 +888,14 @@ function buildOverview(actions: ViewActions): ViewHost {
           }));
         }
         ticker.sync(task);
+      } else if (task && shouldShowBrowserMediaCard(task)) {
+        if (mode !== "media") {
+          clear(leftBody);
+          leftBody.append(mediaPlayerHost.el);
+          mode = "media";
+          cardKey = "media";
+        }
+        mediaPlayerHost.sync(task);
       } else if (task) {
         const isDesktopWindow = task.windowCaption !== undefined || State.desktopWindows.some((w) => {
           const id = w.id || `window-${w.pid}`;
@@ -828,12 +905,19 @@ function buildOverview(actions: ViewActions): ViewHost {
           const quoteText = State.lastWorkflowQuote ?? "";
           const detailText = State.lastWorkflowDetail ?? "";
           const domainKey = `${State.browserDomain?.domain ?? ""}:${State.browserDomain?.category ?? ""}`;
-          const key = `window~${task.id}~${task.windowActive ?? false}~${task.windowCaption ?? ""}~${quoteText}~${detailText}~${domainKey}`;
-          if (key !== cardKey) {
+          // Exclude per-second detailText from cardKey so the card never re-mounts or blinks every second.
+          const key = `window~${task.id}~${task.windowActive ?? false}~${task.windowCaption ?? ""}~${quoteText}~${domainKey}`;
+          if (key !== cardKey || mode !== "card") {
             cardKey = key;
             mode = "card";
             clear(leftBody);
             leftBody.append(renderDesktopWindowCard(task, quoteText, detailText));
+          } else {
+            const capEl = leftBody.querySelector<HTMLElement>(".wf-win-caption");
+            if (capEl) {
+              const nextCap = detailText || task.windowCaption || task.name;
+              if (capEl.textContent !== nextCap) capEl.textContent = nextCap;
+            }
           }
         } else {
           const info = State.integrations[task.id];
@@ -853,7 +937,15 @@ function buildOverview(actions: ViewActions): ViewHost {
       }
 
       jump.style.display =
-        detailOpen || mode === "plan" || mode === "diff" || mode === "workflow" || mode === "recap" || mode === "goals" || mode === "health" || mode === "stats"
+        detailOpen ||
+        mode === "plan" ||
+        mode === "diff" ||
+        mode === "workflow" ||
+        mode === "recap" ||
+        mode === "goals" ||
+        mode === "health" ||
+        mode === "stats" ||
+        mode === "focustimer"
           ? "none"
           : "";
 
@@ -884,6 +976,427 @@ export function hasSessionTicker(task: AgentTask): boolean {
   const isSession = category === "workspace" || category === "agent" ||
     (category == null && task.id.startsWith("agent_"));
   return isSession && (task.state !== "idle" || task.steps.length > 0);
+}
+
+// ── Pomodoro Focus Timer Control Card (In-Place Synced, Zero Blinking) ────────
+
+function buildFocusTimerHost(): { el: HTMLElement; sync: () => void } {
+  const headDot = dot("#22c55e", 7);
+  const headTitle = h("b", { class: "ft-title", text: "⏱ Timer · 25 min" });
+
+  const presets = [5, 15, 25, 45];
+  const presetBtns = presets.map((mins) =>
+    h(
+      "button",
+      {
+        class: "ft-preset-btn",
+        title: `Start ${mins}-minute Pomodoro timer`,
+        onclick: (e: Event) => {
+          e.stopPropagation();
+          void Workflow.startFocusSession(mins * 60);
+        },
+      },
+      h("span", { text: `${mins}m` }),
+    ),
+  );
+
+  const closeBtn = h(
+    "button",
+    {
+      class: "p3-btn p6-close-btn",
+      title: "Close timer card (timer keeps running in header)",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        Workflow.toggleFocusTimerCard(false);
+      },
+    },
+    h("span", { text: "✕" }),
+  );
+
+  const bigTimeEl = h("div", { class: "ft-big-time", text: "25:00" });
+  const endsAtEl = h("div", { class: "ft-ends-at", text: "Ends at --:--" });
+
+  // SVG circular progress ring (r = 21, circumference = 2 * pi * 21 ≈ 131.95)
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  const circumference = 2 * Math.PI * 21;
+  const ringSvg = document.createElementNS(SVG_NS, "svg");
+  ringSvg.setAttribute("viewBox", "0 0 50 50");
+  ringSvg.setAttribute("class", "ft-ring-svg");
+
+  const ringTrack = document.createElementNS(SVG_NS, "circle");
+  ringTrack.setAttribute("cx", "25");
+  ringTrack.setAttribute("cy", "25");
+  ringTrack.setAttribute("r", "21");
+  ringTrack.setAttribute("class", "ft-ring-track");
+
+  const ringProgress = document.createElementNS(SVG_NS, "circle");
+  ringProgress.setAttribute("cx", "25");
+  ringProgress.setAttribute("cy", "25");
+  ringProgress.setAttribute("r", "21");
+  ringProgress.setAttribute("class", "ft-ring-progress");
+  ringProgress.style.strokeDasharray = `${circumference}`;
+  ringProgress.style.strokeDashoffset = "0";
+
+  ringSvg.append(ringTrack, ringProgress);
+  const ringLabel = h("span", { class: "ft-ring-pct", text: "100%" });
+  const ringWrap = h("div", { class: "ft-ring-wrap" }, ringSvg, ringLabel);
+
+  const pauseResumeLabel = h("span", { text: "Pause" });
+  const pauseResumeBtn = h(
+    "button",
+    {
+      class: "ft-btn ft-btn-pause",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        if (!State.focusSession) {
+          void Workflow.startFocusSession(1500);
+        } else {
+          Workflow.togglePauseFocusSession();
+        }
+      },
+    },
+    pauseResumeLabel,
+  );
+
+  const plus1Btn = h(
+    "button",
+    {
+      class: "ft-btn",
+      title: "Add 1 minute",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        if (!State.focusSession) {
+          void Workflow.startFocusSession(60);
+        } else {
+          Workflow.addFocusSessionTime(60);
+        }
+      },
+    },
+    h("span", { text: "+1 min" }),
+  );
+
+  const plus5Btn = h(
+    "button",
+    {
+      class: "ft-btn",
+      title: "Add 5 minutes",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        if (!State.focusSession) {
+          void Workflow.startFocusSession(300);
+        } else {
+          Workflow.addFocusSessionTime(300);
+        }
+      },
+    },
+    h("span", { text: "+5 min" }),
+  );
+
+  const stopBtn = h(
+    "button",
+    {
+      class: "ft-btn ft-btn-stop",
+      title: "Stop Pomodoro timer",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        void Workflow.cancelFocusSession();
+      },
+    },
+    h("span", { text: "Stop" }),
+  );
+
+  const el = h(
+    "div",
+    { class: "int-card wf-card ft-card" },
+    h(
+      "div",
+      { class: "int-head ft-head" },
+      headDot,
+      headTitle,
+      h("div", { class: "ft-presets" }, ...presetBtns),
+      closeBtn,
+    ),
+    h(
+      "div",
+      { class: "ft-body-row" },
+      h("div", { class: "ft-main-col" }, bigTimeEl, endsAtEl),
+      ringWrap,
+    ),
+    h("div", { class: "ft-actions-row" }, pauseResumeBtn, plus1Btn, plus5Btn, stopBtn),
+  );
+
+  return {
+    el,
+    sync() {
+      const s = State.focusSession;
+      if (!s) {
+        headDot.style.background = "#6b7079";
+        headTitle.textContent = "⏱ Timer · Ready";
+        bigTimeEl.textContent = "25:00";
+        endsAtEl.textContent = "Pick a preset or click Start";
+        ringProgress.style.strokeDashoffset = "0";
+        ringProgress.style.stroke = "#22c55e";
+        ringLabel.textContent = "25m";
+        pauseResumeLabel.textContent = "Start 25m";
+        pauseResumeBtn.classList.remove("paused");
+        for (let i = 0; i < presets.length; i++) {
+          presetBtns[i].classList.toggle("on", presets[i] === 25);
+        }
+        return;
+      }
+
+      const targetMins = Math.max(1, Math.round(s.targetSecs / 60));
+      headDot.style.background = s.paused ? "#f59e0b" : "#22c55e";
+      headTitle.textContent = `⏱ Timer · ${targetMins} min`;
+      bigTimeEl.textContent = formatMmSs(s.remainingSecs);
+
+      if (s.paused) {
+        endsAtEl.textContent = `Paused · ${s.taskTitle}`;
+      } else {
+        const endDate = new Date(Date.now() + s.remainingSecs * 1000);
+        const endStr = endDate.toLocaleTimeString("en-US", {
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: true,
+        });
+        endsAtEl.textContent = `Ends at ${endStr}`;
+      }
+
+      const ratio = s.targetSecs > 0 ? Math.max(0, Math.min(1, s.remainingSecs / s.targetSecs)) : 0;
+      const offset = circumference * (1 - ratio);
+      ringProgress.style.strokeDashoffset = `${offset.toFixed(2)}`;
+      ringProgress.style.stroke = s.paused ? "#f59e0b" : "#22c55e";
+      ringLabel.textContent = `${Math.round(ratio * 100)}%`;
+
+      pauseResumeLabel.textContent = s.paused ? "Resume" : "Pause";
+      pauseResumeBtn.classList.toggle("paused", s.paused);
+
+      for (let i = 0; i < presets.length; i++) {
+        presetBtns[i].classList.toggle("on", presets[i] === targetMins);
+      }
+    },
+  };
+}
+
+// ── Browser YouTube / Media Now-Playing Card (In-Place Synced) ────────────────
+
+function cleanMediaTitle(rawTitle: string): { title: string; artist: string } {
+  let cleaned = rawTitle
+    .replace(/\s*[-–—]\s*(Brave|Google Chrome|Chromium|Mozilla Firefox|Microsoft Edge)\s*$/i, "")
+    .replace(/^\(\d+\)\s*/, "")
+    .trim();
+  if (/[-–—]\s*YouTube$/i.test(cleaned)) {
+    cleaned = cleaned.replace(/\s*[-–—]\s*YouTube$/i, "").trim();
+    return { title: cleaned || "YouTube Video", artist: "YouTube" };
+  }
+  return { title: cleaned || "Browser Media", artist: "Browser" };
+}
+
+function buildMediaPlayerHost(): { el: HTMLElement; sync: (task: AgentTask) => void } {
+  const titleEl = h("div", { class: "mp-title", text: "YouTube Video" });
+  const artistEl = h("span", { class: "mp-artist", text: "YouTube" });
+  const liveDot = dot("#22c55e", 6);
+  const liveText = h("span", { class: "mp-live-lbl", text: "Now playing" });
+
+  const subRow = h(
+    "div",
+    { class: "mp-sub-row" },
+    artistEl,
+    h("span", { class: "mp-sep", text: "·" }),
+    liveDot,
+    liveText,
+  );
+
+  const barFill = h("div", { class: "mp-bar-fill", style: "width: 0%" });
+  const barTrack = h(
+    "div",
+    {
+      class: "mp-bar-track",
+      title: "Click to seek in video/audio",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        const dur = State.mediaStatus?.durationSecs ?? 0;
+        if (dur <= 0) return;
+        const me = e as MouseEvent;
+        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        const ratio = Math.max(0, Math.min(1, (me.clientX - rect.left) / Math.max(1, rect.width)));
+        void Workflow.mediaAction("seek-to", ratio * dur);
+      },
+    },
+    barFill,
+  );
+
+  const posTimeEl = h("span", { class: "mp-time", text: "0:00" });
+  const durTimeEl = h("span", { class: "mp-time", text: "0:00" });
+
+  const prevBtn = h(
+    "button",
+    {
+      class: "mp-ctrl-btn",
+      title: "Previous track / video",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        void Workflow.mediaAction("previous");
+      },
+    },
+    svg(ICONS.mediaPrev, 11),
+  );
+
+  const back10Btn = h(
+    "button",
+    {
+      class: "mp-ctrl-btn mp-seek-btn",
+      title: "Rewind 10 seconds (-10s)",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        void Workflow.mediaAction("seek-relative", -10);
+      },
+    },
+    h("span", { text: "-10s" }),
+  );
+
+  const playPauseBtn = h(
+    "button",
+    {
+      class: "mp-play-btn",
+      title: "Play / Pause",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        void Workflow.mediaAction("play-pause");
+      },
+    },
+    svg(ICONS.mediaPause, 12),
+  );
+
+  const fwd10Btn = h(
+    "button",
+    {
+      class: "mp-ctrl-btn mp-seek-btn",
+      title: "Forward 10 seconds (+10s)",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        void Workflow.mediaAction("seek-relative", 10);
+      },
+    },
+    h("span", { text: "+10s" }),
+  );
+
+  const nextBtn = h(
+    "button",
+    {
+      class: "mp-ctrl-btn",
+      title: "Next track / video",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        void Workflow.mediaAction("next");
+      },
+    },
+    svg(ICONS.mediaNext, 11),
+  );
+
+  const muteBtn = h(
+    "button",
+    {
+      class: "mp-ctrl-btn mp-mute-btn",
+      title: "Toggle system audio mute",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        void Workflow.mediaAction("mute");
+      },
+    },
+    svg(ICONS.speakerOn, 12),
+  );
+
+  let currentTask: AgentTask | null = null;
+  let lastPlaying: boolean | null = null;
+  let lastMuted: boolean | null = null;
+
+  const headRow = h(
+    "div",
+    {
+      class: "mp-top-row",
+      title: "Click to jump to Browser window",
+      onclick: () => {
+        if (!currentTask) return;
+        void Bridge.focusTrackerActivateWindow(
+          currentTask.id,
+          currentTask.windowPid ?? 0,
+          currentTask.windowClass ?? currentTask.name,
+        );
+      },
+    },
+    h("div", { class: "mp-meta-col" }, titleEl, subRow),
+  );
+
+  const el = h(
+    "div",
+    { class: "int-card wf-card mp-card" },
+    headRow,
+    h(
+      "div",
+      { class: "mp-progress-wrap" },
+      barTrack,
+      h("div", { class: "mp-time-row" }, posTimeEl, durTimeEl),
+    ),
+    h(
+      "div",
+      { class: "mp-controls-row" },
+      prevBtn,
+      back10Btn,
+      playPauseBtn,
+      fwd10Btn,
+      nextBtn,
+      muteBtn,
+    ),
+  );
+
+  return {
+    el,
+    sync(task: AgentTask) {
+      currentTask = task;
+      const ms = State.mediaStatus;
+      const fallback = cleanMediaTitle(task.windowCaption || task.name);
+      const title = ms?.active && ms.title ? ms.title : fallback.title;
+      const artist =
+        ms?.active && ms.artist
+          ? ms.artist
+          : fallback.artist;
+      const playing = ms?.active ? ms.playing : true;
+      const pos = ms?.active ? Math.max(0, ms.positionSecs) : 0;
+      const dur = ms?.active ? Math.max(0, ms.durationSecs) : 0;
+      const muted = Boolean(ms?.muted);
+
+      if (titleEl.textContent !== title) titleEl.textContent = title;
+      titleEl.title = title;
+      if (artistEl.textContent !== artist) artistEl.textContent = artist;
+
+      liveDot.style.background = playing ? "#22c55e" : "#f59e0b";
+      const statusText = playing ? "Now playing" : "Paused";
+      if (liveText.textContent !== statusText) liveText.textContent = statusText;
+
+      const pct = dur > 0 ? Math.max(0, Math.min(100, (pos / dur) * 100)) : playing ? 100 : 0;
+      barFill.style.width = `${pct.toFixed(1)}%`;
+
+      const posStr = formatMmSs(pos);
+      const durStr = dur > 0 ? formatMmSs(dur) : "LIVE";
+      if (posTimeEl.textContent !== posStr) posTimeEl.textContent = posStr;
+      if (durTimeEl.textContent !== durStr) durTimeEl.textContent = durStr;
+
+      if (playing !== lastPlaying) {
+        lastPlaying = playing;
+        clear(playPauseBtn);
+        playPauseBtn.append(svg(playing ? ICONS.mediaPause : ICONS.mediaPlay, 12));
+        playPauseBtn.classList.toggle("playing", playing);
+      }
+
+      if (muted !== lastMuted) {
+        lastMuted = muted;
+        clear(muteBtn);
+        muteBtn.append(svg(muted ? ICONS.speakerOff : ICONS.speakerOn, 12));
+        muteBtn.classList.toggle("muted", muted);
+      }
+    },
+  };
 }
 
 function renderStatsDashboardCard(sd: import("../core/bridge").StatsDashboardData): HTMLElement {

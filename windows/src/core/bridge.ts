@@ -281,7 +281,33 @@ export const Bridge = {
   /** Reports live layout & visual verification metrics to ~/.cache/coucou/layout-metrics.json. */
   reportLayoutMetrics: (metrics: Record<string, unknown>) =>
     call<void>("report_layout_metrics", { metrics }),
+
+  // ── Battery charging & MPRIS/browser media playback (system_media.rs) ──────
+  batteryStatusGet: () => call<BatteryStatus>("battery_status_get"),
+  mediaStatusGet: () => call<MediaStatus>("media_status_get"),
+  mediaControl: (action: string, value?: number) =>
+    call<MediaStatus>("media_control", { action, value }),
 };
+
+export interface BatteryStatus {
+  hasBattery: boolean;
+  charging: boolean;
+  percentage: number;
+  status: string;
+}
+
+export interface MediaStatus {
+  active: boolean;
+  playing: boolean;
+  playerName: string;
+  title: string;
+  artist: string;
+  url: string;
+  artUrl: string;
+  positionSecs: number;
+  durationSecs: number;
+  muted: boolean;
+}
 
 export interface ScoreBreakdown {
   basePoints: number;

@@ -39,6 +39,7 @@ mod classify;
 mod db;
 mod engine;
 mod health_mode;
+mod system_media;
 
 use focus_tracker::{focus_tracker_is_coding, focus_tracker_window_info};
 
@@ -812,6 +813,9 @@ pub fn run() {
             health_mode::health_mode_trigger,
             health_mode::health_mode_activity_ping,
             health_mode::health_mode_acknowledge,
+            system_media::battery_status_get,
+            system_media::media_status_get,
+            system_media::media_control,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();

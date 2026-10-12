@@ -148,7 +148,61 @@ class WorkflowEngine {
     void this.initDailyGoalsAndRecap();
     void this.initHealthMode();
     void this.initStatsDashboard();
+    void this.initSystemMedia();
     this.startTracking();
+  }
+
+  private async initSystemMedia() {
+    await Promise.all([this.refreshBatteryStatus(), this.refreshMediaStatus()]);
+  }
+
+  async refreshBatteryStatus() {
+    const bat = await Bridge.batteryStatusGet();
+    if (!bat) return;
+    const prev = State.batteryStatus;
+    const changed =
+      !prev ||
+      prev.charging !== bat.charging ||
+      prev.percentage !== bat.percentage ||
+      prev.status !== bat.status ||
+      prev.hasBattery !== bat.hasBattery;
+    State.batteryStatus = bat;
+    if (changed) {
+      State.notify();
+    }
+  }
+
+  async refreshMediaStatus() {
+    const media = await Bridge.mediaStatusGet();
+    if (!media) return;
+    const prev = State.mediaStatus;
+    const changed =
+      !prev ||
+      prev.active !== media.active ||
+      prev.playing !== media.playing ||
+      prev.title !== media.title ||
+      prev.artist !== media.artist ||
+      Math.floor(prev.positionSecs) !== Math.floor(media.positionSecs) ||
+      Math.floor(prev.durationSecs) !== Math.floor(media.durationSecs) ||
+      prev.muted !== media.muted;
+    State.mediaStatus = media;
+    if (changed) {
+      State.notify();
+    }
+  }
+
+  async mediaAction(
+    action: "play-pause" | "next" | "previous" | "seek-relative" | "seek-to" | "mute",
+    value?: number,
+  ) {
+    Sound.play("blip");
+    const updated = await Bridge.mediaControl(action, value);
+    if (updated) {
+      State.mediaStatus = updated;
+      State.notify();
+    } else {
+      await this.refreshMediaStatus();
+    }
   }
 
   private async initStatsDashboard() {
@@ -169,6 +223,7 @@ class WorkflowEngine {
       State.showingMorningRecap = false;
       State.showingDailyGoalsCard = false;
       State.showingHealthCard = false;
+      State.showingFocusTimerCard = false;
       void this.refreshStatsDashboard();
     }
     Sound.play("blip");
@@ -217,6 +272,7 @@ class WorkflowEngine {
       State.showingMorningRecap = false;
       State.showingDailyGoalsCard = false;
       State.showingStatsCard = false;
+      State.showingFocusTimerCard = false;
       void Bridge.healthModeStatus().then((snap) => {
         if (snap) {
           State.healthStatus = snap;
@@ -328,6 +384,7 @@ class WorkflowEngine {
       State.showingMorningRecap = false;
       State.showingHealthCard = false;
       State.showingStatsCard = false;
+      State.showingFocusTimerCard = false;
       void Bridge.dailyGoalsList().then((goals) => {
         if (goals) {
           State.dailyGoals = goals;
@@ -352,6 +409,7 @@ class WorkflowEngine {
       State.showingDailyGoalsCard = false;
       State.showingHealthCard = false;
       State.showingStatsCard = false;
+      State.showingFocusTimerCard = false;
       State.showingMorningRecap = true;
       Sound.play("peek");
       State.notify();
@@ -659,11 +717,39 @@ class WorkflowEngine {
     });
   }
 
+  toggleFocusTimerCard(forceOpen?: boolean) {
+    State.showingFocusTimerCard =
+      forceOpen !== undefined ? forceOpen : !State.showingFocusTimerCard;
+    if (State.showingFocusTimerCard) {
+      State.showingMorningRecap = false;
+      State.showingDailyGoalsCard = false;
+      State.showingHealthCard = false;
+      State.showingStatsCard = false;
+    }
+    Sound.play("blip");
+    State.notify();
+  }
+
+  addFocusSessionTime(deltaSecs: number) {
+    if (!State.focusSession) return;
+    State.focusSession.remainingSecs = Math.max(10, State.focusSession.remainingSecs + deltaSecs);
+    State.focusSession.targetSecs = Math.max(
+      State.focusSession.remainingSecs,
+      State.focusSession.targetSecs + deltaSecs,
+    );
+    State.lastWorkflowDetail = State.focusSession.paused
+      ? `⏸ Paused ${formatMmSs(State.focusSession.remainingSecs)} · ${State.focusSession.taskTitle}`
+      : `⏱ Focus ${formatMmSs(State.focusSession.remainingSecs)} · ${State.focusSession.taskTitle}`;
+    Sound.play("blip");
+    State.notify();
+  }
+
   async startFocusSession(targetSecs = 1500) {
     if (State.focusSession) {
-      await this.cancelFocusSession();
+      await this.cancelFocusSession(true);
     }
-    const taskTitle = State.currentTaskRecord?.title || "25m Focus Session";
+    const mins = Math.max(1, Math.round(targetSecs / 60));
+    const taskTitle = State.currentTaskRecord?.title || `${mins}m Focus Session`;
     const appClass = State.focusTask?.windowClass || State.focusTask?.name || this.currentApp;
     const record = await Bridge.focusSessionStart(targetSecs, taskTitle, appClass);
     const sessionId = record?.id ?? Date.now();
@@ -676,6 +762,11 @@ class WorkflowEngine {
       taskTitle,
       appClass,
     };
+    State.showingFocusTimerCard = true;
+    State.showingMorningRecap = false;
+    State.showingDailyGoalsCard = false;
+    State.showingHealthCard = false;
+    State.showingStatsCard = false;
     State.lastWorkflowDetail = `⏱ Focus ${formatMmSs(targetSecs)} · ${taskTitle}`;
     Sound.play("peek");
     State.notify();
@@ -691,12 +782,15 @@ class WorkflowEngine {
     State.notify();
   }
 
-  async cancelFocusSession() {
+  async cancelFocusSession(keepCardOpen = false) {
     const active = State.focusSession;
     if (!active) return;
     State.focusSession = null;
     State.lastWorkflowDetail = null;
-    Sound.play("close");
+    if (!keepCardOpen) {
+      State.showingFocusTimerCard = false;
+      Sound.play("close");
+    }
     State.notify();
     await Bridge.focusSessionFinish(active.id, active.elapsedSecs, "cancelled");
     void this.refreshStatsDashboard();
@@ -714,6 +808,7 @@ class WorkflowEngine {
     if (session.remainingSecs <= 0) {
       const finishedSession = { ...session };
       State.focusSession = null;
+      State.showingFocusTimerCard = false;
       Sound.play("complete");
       void Bridge.focusSessionFinish(
         finishedSession.id,
@@ -729,6 +824,20 @@ class WorkflowEngine {
     }
 
     State.notify();
+  }
+
+  private tickSystemMedia() {
+    if (this.agentPollCounter % 2 === 0) {
+      void this.refreshBatteryStatus();
+    }
+    const isBrowserFocused =
+      State.focusTask?.name === "Browser" ||
+      (State.focusTask?.windowClass || "").toLowerCase().includes("brave") ||
+      (State.focusTask?.windowClass || "").toLowerCase().includes("chrome") ||
+      (State.focusTask?.windowClass || "").toLowerCase().includes("firefox");
+    if (State.mode === "expanded" || isBrowserFocused || this.agentPollCounter % 2 === 0) {
+      void this.refreshMediaStatus();
+    }
   }
 
   private loadSettings() {
@@ -777,6 +886,7 @@ class WorkflowEngine {
     this.tickBrowserSession();
     this.tickAgentMonitor();
     this.tickHealthMode();
+    this.tickSystemMedia();
     this.checkNotifications();
   }
 

@@ -26,7 +26,8 @@ import { UploadCanvas } from "../upload/canvas";
 import { USC, UploadSeq } from "../upload/sequence";
 import { closePlanCard, openPlanColor, planCardOpen } from "../views/usage";
 import { buildHeader, buildViews, type ViewActions, type ViewHost } from "../views/views";
-import { h } from "../views/dom";
+import { h, svg } from "../views/dom";
+import { ICONS } from "../views/icons";
 import { IslandStateMachine } from "./fsm";
 import { refreshHookPills } from "./integrations";
 import { DesktopLink } from "./desktop";
@@ -39,6 +40,8 @@ const CLAUDE_DESKTOP_ID = "agent_claude-desktop";
 const BOT_SIDE = 24;
 /** Same margin as the Rust hit test (src-tauri/src/island.rs). */
 const HIT_MARGIN = 14;
+/** Extra vertical space below compact bar when the separate charging bar is shown. */
+const CHARGING_BAR_EXTRA_H = 38;
 
 /** The three views the drop sequence owns; leaving them stops the engine. */
 const UPLOAD_VIEWS: ReadonlySet<IslandViewName> = new Set(["upload", "uploading", "choose"]);
@@ -66,6 +69,11 @@ export class Island {
   private clockDateEl!: HTMLElement;
   private clockTimeEl!: HTMLElement;
   private lastClockKey = "";
+  private chargingBarEl!: HTMLElement;
+  private chargingLabelEl!: HTMLElement;
+  private chargingPctEl!: HTMLElement;
+  private chargingFillEl!: HTMLElement;
+  private lastChargingVisible = false;
   private countdown!: HTMLElement;
   private wakeStrip!: HTMLElement;
 
@@ -392,6 +400,36 @@ export class Island {
     );
     this.countdown = h("div", { id: "countdown" });
 
+    // Separate sleek charging bar floating below the compact (inactive) bar when plugged in
+    this.chargingLabelEl = h("span", { class: "cb-label", text: "Charging" });
+    this.chargingPctEl = h("span", { class: "cb-pct", text: "96%" });
+    this.chargingFillEl = h("div", { class: "cb-bat-fill", style: "width: 96%" });
+    const boltIcon = svg(ICONS.bolt, 13);
+    boltIcon.classList.add("cb-bolt");
+    this.chargingBarEl = h(
+      "div",
+      {
+        id: "charging-bar",
+        title: "Battery charging — Click to expand Coucou",
+        onclick: () => {
+          Sound.resume();
+          if (State.mode !== "expanded") this.fsm.click();
+        },
+      },
+      h("div", { class: "cb-left" }, boltIcon, this.chargingLabelEl),
+      h(
+        "div",
+        { class: "cb-right" },
+        this.chargingPctEl,
+        h(
+          "div",
+          { class: "cb-bat-icon" },
+          h("div", { class: "cb-bat-body" }, this.chargingFillEl),
+          h("div", { class: "cb-bat-cap" }),
+        ),
+      ),
+    );
+
     this.header = buildHeader(actions);
     this.views = buildViews(actions, () => this.animateGeometry(false));
     this.viewsEl = h("div", { id: "views" });
@@ -434,7 +472,7 @@ export class Island {
     this.greetingCanvas.style.width = `${GREETING_W}px`;
     this.greetingCanvas.style.height = `${GREETING_H}px`;
 
-    this.root.append(this.wakeStrip, this.islandEl);
+    this.root.append(this.wakeStrip, this.islandEl, this.chargingBarEl);
     this.updateCompactClock();
     window.setInterval(() => {
       if (State.mode === "compact") this.updateCompactClock();
@@ -956,9 +994,14 @@ export class Island {
     return { w, h, r };
   }
 
+  private isChargingBarVisible(): boolean {
+    return State.mode === "compact" && Boolean(State.batteryStatus?.charging);
+  }
+
   private scheduleWindowResize(targetW: number, targetH: number, collapseMs = 340) {
+    const extraH = this.isChargingBarVisible() ? CHARGING_BAR_EXTRA_H : 0;
     const desiredW = Math.max(NOTCH_W, Math.ceil(targetW));
-    const desiredH = Math.max(32, Math.ceil(targetH));
+    const desiredH = Math.max(32, Math.ceil(targetH + extraH));
 
     if (
       Math.abs(desiredW - this.windowSize.w) < 1 &&
@@ -1050,6 +1093,12 @@ export class Island {
     this.islandEl.style.height = `${hh}px`;
     this.islandEl.style.borderRadius = `0 0 ${r}px ${r}px`;
     this.islandEl.style.transform = `translateX(-50%)`;
+
+    if (this.chargingBarEl) {
+      this.chargingBarEl.style.width = `${w}px`;
+      this.chargingBarEl.style.top = `${hh + 6}px`;
+    }
+
     // These follow the island as it resizes, so they belong here rather than in
     // the state-driven DOM sync.
     this.miniGrid.style.left = `${w - 40 - 14.5}px`;
@@ -1057,8 +1106,9 @@ export class Island {
     this.greetingCanvas.style.left = `${(w - GREETING_W) / 2}px`;
     this.uploadCanvas.el.style.left = "0px";
 
+    const extraH = this.isChargingBarVisible() ? CHARGING_BAR_EXTRA_H : 0;
     const viewportW = window.innerWidth || this.windowSize.w || PANEL_W;
-    const rect = { x: Math.max(0, (viewportW - w) / 2), y: 0, w, h: hh };
+    const rect = { x: Math.max(0, (viewportW - w) / 2), y: 0, w, h: hh + extraH };
     const p = this.pushedRect;
     if (Math.abs(p.x - rect.x) > 0.5 || Math.abs(p.w - rect.w) > 0.5 || Math.abs(p.h - rect.h) > 0.5) {
       this.pushedRect = rect;
@@ -1070,8 +1120,9 @@ export class Island {
   private islandRect(): { x: number; y: number; w: number; h: number } {
     const w = this.width.value;
     const hh = this.height.value;
+    const extraH = this.isChargingBarVisible() ? CHARGING_BAR_EXTRA_H : 0;
     const viewportW = window.innerWidth || this.windowSize.w || PANEL_W;
-    return { x: Math.max(0, (viewportW - w) / 2), y: 0, w, h: hh };
+    return { x: Math.max(0, (viewportW - w) / 2), y: 0, w, h: hh + extraH };
   }
 
   // ── Window collapse (hidden → tiny wake strip, zero polling) ────────────────
@@ -1621,6 +1672,8 @@ export class Island {
       }
     }
 
+    this.syncChargingBar();
+
     const activeTasks = [
       ...(State.focusTask ? [State.focusTask] : []),
       ...State.otherTasks,
@@ -1628,6 +1681,31 @@ export class Island {
     ];
     syncMiniBotStates(activeTasks);
     this.engine.setState(State.effectiveState);
+  }
+
+  private syncChargingBar() {
+    if (!this.chargingBarEl) return;
+    const bat = State.batteryStatus;
+    const visible = this.isChargingBarVisible();
+    this.chargingBarEl.classList.toggle("on", visible);
+    if (bat) {
+      const pct = Math.max(0, Math.min(100, bat.percentage));
+      const pctStr = `${pct}%`;
+      if (this.chargingPctEl.textContent !== pctStr) {
+        this.chargingPctEl.textContent = pctStr;
+      }
+      this.chargingFillEl.style.width = `${pct}%`;
+      const lbl = bat.status === "Full" && pct >= 99 ? "Charged" : "Charging";
+      if (this.chargingLabelEl.textContent !== lbl) {
+        this.chargingLabelEl.textContent = lbl;
+      }
+    }
+    if (visible !== this.lastChargingVisible) {
+      this.lastChargingVisible = visible;
+      const { w, h } = this.targetSize();
+      this.scheduleWindowResize(w, h, 200);
+      this.applyGeometry();
+    }
   }
 
   /** Applies settings coming from Rust at boot. */
