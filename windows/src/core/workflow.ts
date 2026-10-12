@@ -38,11 +38,11 @@ export interface WorkflowNotification {
 export interface WorkflowSettings {
   // Motivational quotes
   quotesEnabled: boolean;
-  quotesIntervalSeconds: number; // 240 seconds (4 minutes)
+  quotesIntervalSeconds: number; // 480 seconds (8 minutes)
 
   // Work notification
   workNotificationEnabled: boolean;
-  workNotificationSeconds: number; // 240 seconds (4 minutes)
+  workNotificationSeconds: number; // 480 seconds (8 minutes)
 
   // Legacy settings for UI compatibility
   vscodeEnabled?: boolean;
@@ -62,10 +62,10 @@ export interface WorkflowSettings {
 
 export const DEFAULT_WORKFLOW_SETTINGS: WorkflowSettings = {
   quotesEnabled: true,
-  quotesIntervalSeconds: 240, // 4 minutes (240 seconds)
+  quotesIntervalSeconds: 480, // 8 minutes (480 seconds)
 
   workNotificationEnabled: true,
-  workNotificationSeconds: 240, // 4 minutes (240 seconds)
+  workNotificationSeconds: 480, // 8 minutes (480 seconds)
 
   // Legacy defaults for UI compatibility
   vscodeEnabled: true,
@@ -79,8 +79,8 @@ export const DEFAULT_WORKFLOW_SETTINGS: WorkflowSettings = {
   terminalEnabled: true,
   terminalMessage: "Task is finished!",
   terminalMinDuration: 10,
-  quotesIntervalMinutes: 4,
-  workNotificationMinutes: 4,
+  quotesIntervalMinutes: 8,
+  workNotificationMinutes: 8,
 };
 
 function activityDescription(app: AppType): string {
@@ -737,11 +737,17 @@ class WorkflowEngine {
       if (raw) {
         this.settings = { ...DEFAULT_WORKFLOW_SETTINGS, ...JSON.parse(raw) };
       }
-      if (this.settings.quotesIntervalSeconds < 240) {
-        this.settings.quotesIntervalSeconds = 240;
+      if (this.settings.quotesIntervalSeconds < 480) {
+        this.settings.quotesIntervalSeconds = 480;
       }
-      if (this.settings.workNotificationSeconds < 240) {
-        this.settings.workNotificationSeconds = 240;
+      if (this.settings.workNotificationSeconds < 480) {
+        this.settings.workNotificationSeconds = 480;
+      }
+      if (!this.settings.quotesIntervalMinutes || this.settings.quotesIntervalMinutes < 8) {
+        this.settings.quotesIntervalMinutes = 8;
+      }
+      if (!this.settings.workNotificationMinutes || this.settings.workNotificationMinutes < 8) {
+        this.settings.workNotificationMinutes = 8;
       }
       this.saveSettings();
     } catch {
@@ -949,8 +955,8 @@ class WorkflowEngine {
 
     const now = Date.now();
     const interval = Math.max(
-      this.settings.quotesIntervalSeconds || 240,
-      this.settings.workNotificationSeconds || 240,
+      this.settings.quotesIntervalSeconds || 480,
+      this.settings.workNotificationSeconds || 480,
     );
     const elapsedSinceQuote = (now - this.lastQuoteTime) / 1000;
     const elapsedSinceWork = (now - this.lastWorkNotificationTime) / 1000;
@@ -1009,6 +1015,12 @@ class WorkflowEngine {
 
   updateSettings(settings: Partial<WorkflowSettings>) {
     this.settings = { ...this.settings, ...settings };
+    if (settings.quotesIntervalMinutes !== undefined) {
+      this.settings.quotesIntervalSeconds = settings.quotesIntervalMinutes * 60;
+    }
+    if (settings.workNotificationMinutes !== undefined) {
+      this.settings.workNotificationSeconds = settings.workNotificationMinutes * 60;
+    }
     this.saveSettings();
   }
 }
