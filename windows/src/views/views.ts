@@ -2845,7 +2845,7 @@ function buildPill(task: AgentTask, actions: ViewActions): HTMLElement {
         State.removeSessionOrWindow(task.id, task.windowPid, task.windowClass ?? task.name);
       },
     },
-    h("span", { text: "✕" }),
+    svg(ICONS.xmark, 8),
   );
   pill.append(closeBtn);
 

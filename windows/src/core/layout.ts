@@ -86,7 +86,7 @@ export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
   prompt: { height: 204, botX: 58, botY: null, botDiameter: 50, agentMode: "column" },
   searching: { height: 170, botX: 58, botY: null, botDiameter: 50, agentMode: "column" },
   result: { height: 170, botX: 58, botY: null, botDiameter: 50, agentMode: "column" },
-  note: { height: 170, botX: 64, botY: null, botDiameter: 54, agentMode: "column" },
+  note: { height: 184, botX: 64, botY: null, botDiameter: 54, agentMode: "column" },
   settings: { height: 210, botX: 60, botY: null, botDiameter: 52, agentMode: "none" },
   greeting: { height: 150, botX: 320, botY: 90, botDiameter: 0, agentMode: "none" },
   // Mac: 160. The extra 24 hold the two lines with top agent, project, busiest
