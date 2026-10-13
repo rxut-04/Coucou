@@ -902,7 +902,15 @@ export default {
                     requestID: reqId,
                     decision: allow ? 'allow' : 'deny',
                   });
-                } catch {}
+                } catch {
+                  try {
+                    await api.permission.reply({
+                      sessionID: session_id,
+                      requestID: reqId,
+                      reply: allow ? 'once' : 'reject',
+                    });
+                  } catch {}
+                }
               }
             });
             continue;

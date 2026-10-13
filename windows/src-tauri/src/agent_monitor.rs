@@ -1046,6 +1046,46 @@ pub fn detect_terminal_interactive_prompt(
     None
 }
 
+/// Writes raw keystrokes directly to any currently active foreground terminal PTY (OpenCode, VS Code terminal, Konsole, or shell).
+pub fn send_input_to_active_terminal(input_text: &str, append_newline: bool) -> bool {
+    let bytes: Vec<u8> = match input_text {
+        "__CTRL_C__" => vec![0x03],
+        "__ENTER__" => b"\r".to_vec(),
+        "allow" => b"y\r".to_vec(),
+        "deny" => b"n\r".to_vec(),
+        other => {
+            if append_newline {
+                format!("{other}\r").into_bytes()
+            } else {
+                other.as_bytes().to_vec()
+            }
+        }
+    };
+
+    let Ok(entries) = fs::read_dir("/proc") else { return false };
+    for entry in entries.flatten() {
+        let Ok(stat) = fs::read_to_string(entry.path().join("stat")) else { continue };
+        let Some(rparen) = stat.rfind(')') else { continue };
+        let fields: Vec<&str> = stat[rparen + 1..].split_whitespace().collect();
+        if fields.len() < 6 || fields[0] != "S" { continue };
+        let pgrp: i32 = fields[2].parse().unwrap_or(-1);
+        let tty_nr: i32 = fields[4].parse().unwrap_or(0);
+        let tpgid: i32 = fields[5].parse().unwrap_or(-2);
+        if (tty_nr >> 8) == 136 && pgrp > 0 && pgrp == tpgid {
+            let pts_index = (tty_nr & 0xff) as u32;
+            let cmdline = fs::read(entry.path().join("cmdline"))
+                .map(|b| String::from_utf8_lossy(&b).to_lowercase())
+                .unwrap_or_default();
+            if cmdline.contains("opencode") || cmdline.contains("code") || cmdline.contains("konsole") || cmdline.contains("bash") || cmdline.contains("zsh") {
+                if write_to_pty_master(pts_index, &bytes).is_ok() {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 /// Handles an interactive decision, option pick, or custom text/password submitted from the Coucou island.
 /// Returns `true` if handled as an interactive PTY / Antigravity request.
 pub fn handle_interactive_input(
@@ -1154,6 +1194,15 @@ pub fn spawn_agent_monitor(app: AppHandle, state: Arc<AgentMonitorState>) {
                 db_ref,
             ) {
                 let _ = app.emit("agent-wait-event", &evt);
+                if evt.state == "done" {
+                    let stop_payload = json!({
+                        "hook_event_name": "Stop",
+                        "session_id": "antigravity",
+                        "coucou_agent": "antigravity",
+                        "message": if evt.detail.is_empty() { "Turn completed in Antigravity" } else { &evt.detail },
+                    });
+                    let _ = app.emit_to(crate::island::WINDOW_LABEL, "hook", stop_payload);
+                }
             }
 
             // 2. Kiro
@@ -1264,6 +1313,9 @@ pub fn submit_interactive_input(
     if handle_interactive_input(&app, &request_id, &input_text, newline) {
         return true;
     }
+    // Also try writing directly to active terminal/OpenCode PTY so interactive prompts capture it
+    send_input_to_active_terminal(&input_text, newline);
+
     // If it was a standard hook pipe request (e.g. OpenCode plugin or Claude Code),
     // map "y"/"yes"/"allow" -> "allow", "n"/"no"/"deny" -> "deny", or answer question.
     let lower = input_text.trim().to_lowercase();

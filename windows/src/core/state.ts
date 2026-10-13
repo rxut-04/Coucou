@@ -597,6 +597,10 @@ class AppState {
   }
 
   get focusTask(): AgentTask | null {
+    if (this.focusId) {
+      const explicitTask = this.tasks.find((t) => t.id === this.focusId);
+      if (explicitTask) return explicitTask;
+    }
     if (this.desktopWindows.length > 0) {
       const byFocus = this.focusId
         ? this.desktopWindows.find((w) => windowId(w) === this.focusId)
@@ -727,6 +731,14 @@ class AppState {
           return (a.caption || a.resourceClass).localeCompare(b.caption || b.resourceClass);
         })
         .map(buildWindowTask);
+      // Also include any active external agent pills (e.g. Antigravity, OpenCode) that are not currently focused
+      for (const t of this.tasks) {
+        if (t.id !== focusedId && (t.state !== "idle" || t.pillBadge)) {
+          if (!others.some((o) => o.id === t.id)) {
+            others.unshift(t);
+          }
+        }
+      }
       return others;
     }
     return this.tasks.filter((t) => t.id !== this.focusId);

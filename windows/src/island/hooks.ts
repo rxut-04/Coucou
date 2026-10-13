@@ -423,22 +423,40 @@ function handleHook(island: Island, payload: HookPayload) {
         if (t) t.finalLine = finalText;
       }
       Sound.play("finish");
-      // A card waiting for an answer is never covered by another alert, and a
-      // pill you are not looking at only gets its badge (Mac #140).
-      if (focused && !State.pendingApproval) surface("finished", true);
-      else State.setPillBadge(agentId, "finished");
+
+      // Set focus to the agent that just completed so the Main Pill shows its card
+      State.setFocus(agentId);
+
+      // Expand the island with dropdown animation to temporarily take over the main pill
+      if (!State.pendingApproval) {
+        State.isPinned = true;
+        island.fsm.pinned = true;
+        island.alert("finished");
+      } else {
+        State.setPillBadge(agentId, "finished");
+      }
+
       cancelStopTimer(agentId);
       stopTimers.set(
         agentId,
         window.setTimeout(() => {
           stopTimers.delete(agentId);
+          if (State.view === "finished" && State.focusId === agentId) {
+            island.setView(State.defaultView());
+            State.isPinned = false;
+            island.fsm.pinned = false;
+            if (State.mode === "expanded") {
+              island.fsm.mouseLeft();
+            }
+          }
           if (isExternalAgent) {
-            State.removeTask(agentId);
+            State.updateTask(agentId, "idle");
+            State.setPillBadge(agentId, null);
           } else {
             State.updateTask(agentId, "idle");
             State.setPillBadge(agentId, null);
           }
-        }, 5200),
+        }, 8000),
       );
       break;
     }

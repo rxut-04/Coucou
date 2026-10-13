@@ -2792,7 +2792,22 @@ function buildError(actions: ViewActions): ViewHost {
 function buildFinished(actions: ViewActions): ViewHost {
   const who = h("div");
   const title = h("div", { class: "title one-line" });
-  const open = btn(tl("Open terminal"), "primary", () => actions.openTerminal());
+  const open = btn(tl("Open terminal"), "primary", () => {
+    const task = State.focusTask;
+    if (task) {
+      if (task.id === "agent_antigravity" || task.name.toLowerCase().includes("antigravity")) {
+        void Bridge.focusTrackerActivateWindow("", 0, "antigravity");
+      } else if (task.id === "agent_opencode" || task.name.toLowerCase().includes("opencode")) {
+        void Bridge.focusTrackerActivateWindow("", 0, "code");
+      } else if (task.id.startsWith("pty-") || task.id.includes("terminal") || task.id.includes("konsole")) {
+        void Bridge.focusTrackerActivateWindow("", 0, "konsole");
+      } else {
+        actions.openTerminal();
+      }
+    } else {
+      actions.openTerminal();
+    }
+  });
   const row = h("div", { class: "actions" },
     open,
     btn(tl("OK"), "secondary", () => actions.collapse()),
@@ -2802,13 +2817,20 @@ function buildFinished(actions: ViewActions): ViewHost {
     el,
     sync() {
       clear(who);
-      const agent = State.focusTask?.source === "agent";
-      who.append(agentWho(State.focusTask, agent ? t("finished") : t("Claude Code finished")));
-      // The final message, else the last step that is not a diff (FinishedView).
       const task = State.focusTask;
+      const agent = task?.source === "agent";
+      who.append(agentWho(task, agent ? t("finished") : t("Claude Code finished")));
+      // The final message, else the last step that is not a diff (FinishedView).
       title.textContent = task?.finalLine || (task && lastTextStep(task.steps)) || t("Session finished");
-      // Sessions from the Claude desktop app live there, not in a terminal.
-      const label = task?.id === "agent_claude-desktop" ? t("Open Claude") : t("Open terminal");
+      // Choose appropriate button label based on which agent finished
+      const label =
+        task?.id === "agent_antigravity"
+          ? "Open Antigravity"
+          : task?.id === "agent_opencode"
+            ? "Open OpenCode"
+            : task?.id === "agent_claude-desktop"
+              ? t("Open Claude")
+              : t("Open terminal");
       const span = open.firstElementChild as HTMLElement;
       if (span.textContent !== label) span.textContent = label;
     },

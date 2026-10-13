@@ -66,10 +66,20 @@ pub fn decision_json(decision: &str, question: Option<&Value>) -> Option<String>
         let reply = serde_json::from_str::<Value>(decision).ok()?;
         let answers = reply.get("answers")?.as_object()?;
         let question = question?;
-        if !answers_fit(question, answers) {
+        let input_map = question.as_object()?;
+
+        // If structured questions array is present, check with answers_fit
+        let is_valid = if question.get("questions").and_then(Value::as_array).is_some() {
+            answers_fit(question, answers)
+        } else {
+            !answers.is_empty()
+        };
+
+        if !is_valid {
             return None;
         }
-        let mut input = question.as_object()?.clone();
+
+        let mut input = input_map.clone();
         input.insert("answers".into(), Value::Object(answers.clone()));
         return Some(
             json!({
