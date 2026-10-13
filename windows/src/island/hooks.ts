@@ -149,33 +149,54 @@ const APPROVAL_FIELDS = [
 ] as const;
 
 function approvalTarget(tool: string, input: Record<string, unknown>): string {
+  const cleanTool =
+    tool === "TerminalPrompt" || tool === "OptionPrompt" || tool === "Input"
+      ? ""
+      : tool === "PasswordPrompt"
+        ? "🔒 Auth"
+        : tool;
   for (const field of APPROVAL_FIELDS) {
     const value = input[field];
     if (typeof value === "string" && value.trim()) {
-      return `${tool} · ${value.trim()}`;
+      return cleanTool ? `${cleanTool} · ${value.trim()}` : value.trim();
     }
   }
-  return tool;
+  return cleanTool || tool;
 }
 
 /**
- * The questions of an AskUserQuestion call, if the island can show all of them
- * as options to pick from. Anything it cannot is left to the terminal.
+ * The questions of an AskUserQuestion / ask_question / OptionPrompt call, if the
+ * island can show them as options to pick from. Supports both `{ label, description }`
+ * option objects (Claude Code / OpenCode) and plain string options (Antigravity).
  */
-function askedQuestions(tool: string, input: Record<string, unknown>): AskedQuestion[] | null {
-  if (tool !== "AskUserQuestion" || !Array.isArray(input.questions)) return null;
+function askedQuestions(_tool: string, input: Record<string, unknown>): AskedQuestion[] | null {
+  if (!Array.isArray(input.questions)) return null;
   const out: AskedQuestion[] = [];
   for (const raw of input.questions as Record<string, unknown>[]) {
     const question = typeof raw?.question === "string" ? raw.question : "";
-    const options = (Array.isArray(raw?.options) ? (raw.options as Record<string, unknown>[]) : [])
-      .filter((o) => typeof o?.label === "string" && o.label)
-      .map((o) => ({
-        label: o.label as string,
-        description: typeof o.description === "string" ? o.description : "",
-      }));
-    // A question cut short by the relay would be answered under the wrong text.
-    if (!question || question.endsWith("…") || options.length < 2) return null;
-    out.push({ question, options, multiSelect: raw.multiSelect === true });
+    const rawOpts = Array.isArray(raw?.options) ? raw.options : [];
+    const options = rawOpts
+      .map((o) => {
+        if (typeof o === "string" && o.trim()) {
+          return { label: o.trim(), description: "" };
+        }
+        if (o && typeof o === "object") {
+          const obj = o as Record<string, unknown>;
+          const lbl =
+            typeof obj.label === "string"
+              ? obj.label
+              : typeof obj.value === "string"
+                ? obj.value
+                : "";
+          const desc = typeof obj.description === "string" ? obj.description : "";
+          if (lbl) return { label: lbl, description: desc };
+        }
+        return null;
+      })
+      .filter((o): o is { label: string; description: string } => o !== null);
+    if (!question || options.length < 1) return null;
+    const multiSelect = raw.multiSelect === true || raw.is_multi_select === true;
+    out.push({ question, options, multiSelect });
   }
   return out.length > 0 ? out : null;
 }
@@ -468,22 +489,36 @@ function handleHook(island: Island, payload: HookPayload) {
       }
 
       const requestId = payload.request_id ?? "";
-      // One card, one request. A second one must never quietly replace the first
-      // — that would leave a human staring at request B while request A waits for
-      // a decision nobody can give. Hand it straight back to the terminal.
+      // One card, one request. A second one must never quietly replace a live
+      // relay pipe request — unless the existing card is a passive PTY/transcript
+      // monitor prompt (`pty-` / `ag-`) being superseded by a newer prompt.
       if (State.pendingApproval && State.pendingApproval.requestId !== requestId) {
-        if (requestId) void Bridge.approvalDecline(requestId);
-        break;
+        const existingId = State.pendingApproval.requestId;
+        const canSupersede = existingId.startsWith("pty-") || existingId.startsWith("ag-");
+        if (!canSupersede) {
+          if (requestId) void Bridge.approvalDecline(requestId);
+          break;
+        }
       }
       ensurePill();
       supersedeStop();
       if (pendingTimeout != null) window.clearTimeout(pendingTimeout);
       const tool = payload.tool_name ?? "Tool";
       const input = payload.tool_input ?? {};
-      // Claude Code asking a question is not a permission to grant: the island
-      // shows the options and sends back the one that was picked. Only Claude
-      // Code asks questions this way.
-      const questions = isExternalAgent ? null : askedQuestions(tool, input);
+      const promptKind = typeof input.prompt_kind === "string" ? input.prompt_kind : undefined;
+      const appLabel = typeof input.app_label === "string" ? input.app_label : undefined;
+      const quickOptions = Array.isArray(input.quick_options)
+        ? (input.quick_options as Record<string, unknown>[])
+            .filter((o) => typeof o?.label === "string" && typeof o?.value === "string")
+            .map((o) => ({ label: o.label as string, value: o.value as string }))
+        : undefined;
+      if (isExternalAgent && appLabel) {
+        const t = State.tasks.find((x) => x.id === agentId);
+        if (t) t.name = appLabel;
+      }
+      // Asking a question with selectable options shows the option-picker view
+      // for Claude Code, OpenCode, Antigravity, and terminal option prompts.
+      const questions = askedQuestions(tool, input);
       const view = questions ? "question" : "approval";
       // The card always comes up, even over another pill or an island that is
       // already open: its pill comes to the front, and the one you were on
@@ -495,14 +530,19 @@ function handleHook(island: Island, payload: HookPayload) {
         tool,
         command: approvalTarget(tool, input),
         ...(questions ? { questions } : {}),
+        ...(promptKind ? { promptKind } : {}),
+        ...(appLabel ? { appLabel } : {}),
+        ...(quickOptions ? { quickOptions } : {}),
       });
       // The relay's short ack window closes in 800 ms; everything below this
       // line is synchronous, so the card really is up by the time it lands.
-      if (requestId) void Bridge.approvalAck(requestId);
+      if (requestId && !requestId.startsWith("pty-") && !requestId.startsWith("ag-")) {
+        void Bridge.approvalAck(requestId);
+      }
       State.updateTask(agentId, view);
       Sound.play(view);
-      // Any agent's card (Claude Code, Codex, Copilot CLI, Muse Code) comes up
-      // the same way: beginApproval brought its pill to the front.
+      // Any agent's card (Claude Code, OpenCode, Antigravity, Konsole, Terminal, Codex…)
+      // comes up the same way: beginApproval brought its pill to the front.
       island.alert(view);
       // Coucou answers within 108 s or not at all; after that the terminal has
       // taken over and the card would be lying.

@@ -432,17 +432,37 @@ async fn codex_plan_usage() -> Option<serde_json::Value> {
 
 #[tauri::command]
 fn approval_decision(app: AppHandle, request_id: String, decision: String) {
+    if agent_monitor::handle_interactive_input(&app, &request_id, &decision, true) {
+        return;
+    }
     recap::record_decision(&app, &request_id, &decision);
     pipe::answer(&app, &request_id, &decision);
 }
 
-/// An option picked on the island for a question Claude Code asked.
+/// An option picked on the island for a question Claude Code, Antigravity, OpenCode, or Terminal asked.
 #[tauri::command]
 fn approval_answer(
     app: AppHandle,
     request_id: String,
     answers: std::collections::HashMap<String, serde_json::Value>,
 ) {
+    if request_id.starts_with("pty-") || request_id.starts_with("ag-") {
+        let first_val = answers
+            .values()
+            .next()
+            .map(|v| match v {
+                serde_json::Value::String(s) => s.clone(),
+                serde_json::Value::Array(arr) => arr
+                    .iter()
+                    .filter_map(|x| x.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                other => other.to_string(),
+            })
+            .unwrap_or_default();
+        let _ = agent_monitor::handle_interactive_input(&app, &request_id, &first_val, true);
+        return;
+    }
     // An answered question is not an Allow / Deny: nothing for the recap.
     recap::forget_request(&app, &request_id);
     pipe::answer_question(&app, &request_id, &answers);
@@ -460,6 +480,9 @@ fn approval_ack(app: AppHandle, request_id: String) {
 /// already up. Claude Code falls back to asking in the terminal immediately.
 #[tauri::command]
 fn approval_decline(app: AppHandle, request_id: String) {
+    if let Some(state) = app.try_state::<Arc<agent_monitor::AgentMonitorState>>() {
+        state.mark_request_dismissed(&request_id);
+    }
     recap::forget_request(&app, &request_id);
     pipe::decline(&app, &request_id);
 }
@@ -817,6 +840,7 @@ pub fn run() {
             agent_monitor::agent_monitor_status,
             agent_monitor::agent_monitor_acknowledge,
             agent_monitor::agent_monitor_trigger,
+            agent_monitor::submit_interactive_input,
             health_mode::health_mode_status,
             health_mode::health_mode_trigger,
             health_mode::health_mode_activity_ping,

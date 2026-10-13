@@ -72,8 +72,8 @@ export const WAKE_STRIP_H = 6;
 export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
   overview: { height: 132, botX: 68, botY: null, botDiameter: 56, agentMode: "pills" },
   empty: { height: 160, botX: 68, botY: null, botDiameter: 58, agentMode: "none" },
-  approval: { height: 170, botX: 64, botY: null, botDiameter: 56, agentMode: "column" },
-  question: { height: 170, botX: 64, botY: null, botDiameter: 56, agentMode: "column" },
+  approval: { height: 198, botX: 64, botY: null, botDiameter: 56, agentMode: "column" },
+  question: { height: 198, botX: 64, botY: null, botDiameter: 56, agentMode: "column" },
   error: { height: 170, botX: 64, botY: null, botDiameter: 58, agentMode: "column" },
   finished: { height: 170, botX: 64, botY: null, botDiameter: 58, agentMode: "column" },
   confused: { height: 170, botX: 74, botY: null, botDiameter: 64, agentMode: "column" },
@@ -100,8 +100,8 @@ export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
 // dropped the whole sequence — Mochi included — is drawn by src/upload, which
 // owns its own constants (USC) straight from UploadSequenceEngine.swift.
 
-/** The question view with options to pick from: room for two rows of them. */
-export const QUESTION_PICKER_H = 220;
+/** The question view with options to pick from: room for two rows of them + custom input. */
+export const QUESTION_PICKER_H = 232;
 
 /** Chat view grows with the conversation — IslandContainer.chatPromptHeight. */
 export function chatPromptHeight(messageCount: number): number {

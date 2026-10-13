@@ -39,8 +39,10 @@ export interface ViewActions {
   openTarget(): void;
   openUrl(url: string): void;
   decide(d: "allow" | "deny"): void;
-  /** Answers the question Claude Code asked: question text → chosen label. */
+  /** Answers the question Claude Code / OpenCode / Antigravity asked: question text → chosen label. */
   answer(answers: Record<string, string | string[]>): void;
+  /** Sends direct text/option input to a terminal PTY, OpenCode, or Antigravity prompt. */
+  submitInput(text: string): void;
   /** Hands the pending request back to the terminal. */
   answerInTerminal(): void;
   toggleSound(): void;
@@ -2448,46 +2450,190 @@ function foldButton(actions: ViewActions): HTMLElement {
   );
 }
 
+function createInlinePromptBar(
+  onSubmit: (val: string) => void,
+  onSkipToTerminal: () => void,
+): {
+  rowEl: HTMLElement;
+  inputEl: HTMLInputElement;
+  configure: (isPassword: boolean, placeholder: string) => void;
+} {
+  const inputEl = h("input", {
+    type: "text",
+    class: "coucou-inline-prompt-input",
+    placeholder: "Type input or option & press Enter…",
+    autocomplete: "off",
+    spellcheck: "false",
+    onmousedown: (e: Event) => {
+      e.stopPropagation();
+      void Bridge.focusWindow(true);
+    },
+    onfocus: () => {
+      void Bridge.focusWindow(true);
+    },
+    onblur: () => {
+      void Bridge.focusWindow(false);
+    },
+    onkeydown: (ev: Event) => {
+      const e = ev as KeyboardEvent;
+      e.stopPropagation();
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const val = inputEl.value;
+        inputEl.value = "";
+        void Bridge.focusWindow(false);
+        onSubmit(val);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        inputEl.blur();
+        void Bridge.focusWindow(false);
+      }
+    },
+  }) as HTMLInputElement;
+
+  const sendBtn = h(
+    "button",
+    {
+      class: "btn primary coucou-inline-send-btn",
+      title: "Send input directly from Coucou (Enter)",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        const val = inputEl.value;
+        inputEl.value = "";
+        void Bridge.focusWindow(false);
+        onSubmit(val);
+      },
+    },
+    h("span", { text: "Send ↵" }),
+  );
+
+  const termBtn = h(
+    "button",
+    {
+      class: "link-btn coucou-inline-term-btn",
+      title: "Focus application / terminal window",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        void Bridge.focusWindow(false);
+        onSkipToTerminal();
+      },
+    },
+    h("span", { text: "Terminal ↗" }),
+  );
+
+  const rowEl = h(
+    "div",
+    { class: "coucou-inline-input-row" },
+    inputEl,
+    sendBtn,
+    termBtn,
+  );
+
+  return {
+    rowEl,
+    inputEl,
+    configure(isPassword: boolean, placeholder: string) {
+      const targetType = isPassword ? "password" : "text";
+      if (inputEl.type !== targetType) inputEl.type = targetType;
+      if (inputEl.placeholder !== placeholder) inputEl.placeholder = placeholder;
+    },
+  };
+}
+
 function buildApproval(actions: ViewActions): ViewHost {
   const who = h("div");
   const code = h("div", { class: "code" });
-  const row = h("div", { class: "actions" });
-  const el = h("div", { class: "view" },
-    card("amber", stack(116, 16, who, code, row), foldButton(actions)));
+  const row = h("div", { class: "actions coucou-interactive-actions" });
+  const inlineBar = createInlinePromptBar(
+    (val) => actions.submitInput(val),
+    () => {
+      actions.openTarget();
+      actions.answerInTerminal();
+    },
+  );
+  const el = h(
+    "div",
+    { class: "view" },
+    card("amber", stack(116, 16, who, code, row, inlineBar.rowEl), foldButton(actions)),
+  );
   let rowKey = "";
-  // The card pops up under a cursor that was busy with something else: a click
-  // meant for the window underneath must not land on Allow. Clicks in the first
-  // moments after a new request appears are ignored.
   let shownFor: string | null = null;
   let shownAt = 0;
-  const guarded = (d: "allow" | "deny") => () => {
+  const guardedDecide = (d: "allow" | "deny") => () => {
     if (performance.now() - shownAt < CLICK_GUARD_MS) return;
     actions.decide(d);
   };
+  const guardedInput = (val: string) => () => {
+    if (performance.now() - shownAt < CLICK_GUARD_MS) return;
+    if (val === "y" || val === "allow") actions.decide("allow");
+    else if (val === "n" || val === "deny") actions.decide("deny");
+    else actions.submitInput(val);
+  };
   return {
     el,
+    focus() {
+      if (
+        State.pendingApproval?.promptKind === "password" ||
+        State.pendingApproval?.promptKind === "input"
+      ) {
+        void Bridge.focusWindow(true);
+        inlineBar.inputEl.focus();
+      }
+    },
     sync() {
-      const req = State.pendingApproval?.requestId ?? null;
+      const pending = State.pendingApproval;
+      const req = pending?.requestId ?? null;
       if (req !== shownFor) {
         shownFor = req;
         shownAt = performance.now();
+        inlineBar.inputEl.value = "";
       }
       clear(who);
-      who.append(agentWho(State.focusTask, t("needs permission")));
-      // The whole point of approving here rather than in the terminal: this line
-      // is the command, the file path or the URL being authorised, not just the
-      // name of the tool asking.
-      code.textContent = State.pendingApproval?.command || State.pendingApproval?.tool || "…";
-      // Two buttons, built once. Rebuilding them between a mouse-down and a
-      // mouse-up would swallow the click, and there is nothing left to vary:
-      // "Always" is gone until the remembered-rules list exists to back it.
-      if (rowKey === "built") return;
-      rowKey = "built";
-      clear(row);
-      row.append(
-        btn(tl("Deny"), "secondary", guarded("deny"), "N"),
-        btn(tl("Allow"), "primary", guarded("allow"), "Y"),
+      const pKind = pending?.promptKind ?? "";
+      const statusText =
+        pKind === "password"
+          ? "🔒 password required"
+          : pKind === "confirm"
+            ? "⌨ waiting for confirmation"
+            : pKind === "input"
+              ? "⌨ waiting for input"
+              : t("needs permission");
+      who.append(agentWho(State.focusTask, statusText));
+      code.textContent = pending?.command || pending?.tool || "…";
+      code.title = pending?.command || pending?.tool || "";
+
+      const isPass = pKind === "password";
+      inlineBar.configure(
+        isPass,
+        isPass
+          ? "Enter sudo / SSH password & press Enter…"
+          : "Type input, option, or command reply & press Enter…",
       );
+
+      const quickOpts = pending?.quickOptions ?? [];
+      const nextKey = `${req ?? "none"}:${pKind}:${quickOpts.map((o) => `${o.label}=${o.value}`).join("|")}`;
+      if (rowKey === nextKey) return;
+      rowKey = nextKey;
+      clear(row);
+
+      if (quickOpts.length > 0) {
+        for (const opt of quickOpts) {
+          const isPrimary = opt.value === "y" || opt.value === "allow" || opt.value === "1";
+          row.append(
+            btn(
+              opt.label,
+              isPrimary ? "primary" : "secondary",
+              guardedInput(opt.value),
+              opt.value === "y" ? "Y" : opt.value === "n" ? "N" : undefined,
+            ),
+          );
+        }
+      } else {
+        row.append(
+          btn(tl("Deny"), "secondary", guardedDecide("deny"), "N"),
+          btn(tl("Allow"), "primary", guardedDecide("allow"), "Y"),
+        );
+      }
     },
   };
 }
@@ -2497,18 +2643,13 @@ function buildApproval(actions: ViewActions): ViewHost {
 function buildQuestion(actions: ViewActions): ViewHost {
   const who = h("div");
   const title = h("div", { class: "title question-text" });
-  const row = h("div", { class: "actions options" });
+  const row = h("div", { class: "actions options coucou-interactive-actions" });
   const fold = foldButton(actions);
-  const el = h("div", { class: "view" }, card("cyan", stack(116, 16, who, title, row), fold));
 
-  // Where we are in the request on screen: which question, what is answered so
-  // far, and what is ticked in a pick-several question.
   let requestId = "";
   let index = 0;
   let answers: Record<string, string | string[]> = {};
   let picked = new Set<string>();
-  // The buttons are only rebuilt when what they show changes: rebuilding them
-  // between a mouse-down and a mouse-up would swallow the click.
   let rowKey = "";
 
   const next = (question: string, answer: string | string[], total: number) => {
@@ -2519,42 +2660,80 @@ function buildQuestion(actions: ViewActions): ViewHost {
     else State.notify();
   };
 
+  const inlineBar = createInlinePromptBar(
+    (val) => {
+      const questions = State.pendingApproval?.questions;
+      if (questions && questions.length > 0) {
+        const q = questions[Math.min(index, questions.length - 1)];
+        next(q.question, val, questions.length);
+      } else {
+        actions.submitInput(val);
+      }
+    },
+    () => {
+      actions.openTarget();
+      actions.answerInTerminal();
+    },
+  );
+
+  const el = h(
+    "div",
+    { class: "view" },
+    card("cyan", stack(116, 16, who, title, row, inlineBar.rowEl), fold),
+  );
+
   return {
     el,
     sync() {
-      const questions = State.pendingApproval?.questions;
+      const pending = State.pendingApproval;
+      const questions = pending?.questions;
       clear(who);
-      // Only a request that is waiting can be folded away and come back.
-      fold.style.display = State.pendingApproval ? "" : "none";
+      fold.style.display = pending ? "" : "none";
+      inlineBar.configure(false, "Or type custom answer / option number & press Enter…");
 
-      // A question that arrived as a notification has nothing to pick from.
-      if (!questions) {
+      // A question that arrived without structured options still gets quick buttons + input bar!
+      if (!questions || questions.length === 0) {
         who.append(agentWho(State.focusTask, t("is asking a question")));
         const task = State.focusTask;
-        title.textContent = (task && lastTextStep(task.steps)) ?? t("Claude needs an answer.");
-        if (rowKey !== "terminal") {
-          rowKey = "terminal";
+        title.textContent =
+          pending?.command || (task && lastTextStep(task.steps)) || t("Waiting for your response…");
+        if (rowKey !== "terminal-quick") {
+          rowKey = "terminal-quick";
           clear(row);
-          row.append(h("div", { class: "sub", text: tl("Answer it in your terminal.") }));
+          for (const quick of [
+            { label: "Yes (y)", val: "y", primary: true },
+            { label: "No (n)", val: "n", primary: false },
+            { label: "Option 1", val: "1", primary: false },
+            { label: "Option 2", val: "2", primary: false },
+            { label: "Option 3", val: "3", primary: false },
+          ]) {
+            row.append(
+              btn(quick.label, quick.primary ? "primary" : "secondary", () =>
+                actions.submitInput(quick.val),
+              ),
+            );
+          }
         }
         return;
       }
 
-      if (State.pendingApproval!.requestId !== requestId) {
-        requestId = State.pendingApproval!.requestId;
+      if (pending!.requestId !== requestId) {
+        requestId = pending!.requestId;
         index = 0;
         answers = {};
         picked = new Set();
+        inlineBar.inputEl.value = "";
       }
       const q = questions[Math.min(index, questions.length - 1)];
-      const asking = questions.length > 1
-        ? t("is asking ({index} of {total})", { index: index + 1, total: questions.length })
-        : t("is asking");
+      const asking =
+        questions.length > 1
+          ? t("is asking ({index} of {total})", { index: index + 1, total: questions.length })
+          : t("is asking");
       who.append(agentWho(State.focusTask, asking));
       title.textContent = q.question;
       title.title = q.question;
 
-      const key = `${requestId}:${index}:${[...picked].join("|")}`;
+      const key = `${requestId}:${index}:${[...picked].join("|")}:${q.options.map((o) => o.label).join(",")}`;
       if (rowKey === key) return;
       rowKey = key;
       clear(row);
@@ -2579,14 +2758,6 @@ function buildQuestion(actions: ViewActions): ViewHost {
         if (picked.size === 0) done.classList.add("off");
         row.append(done);
       }
-      row.append(
-        h("button", {
-          class: "link-btn",
-          style: "color:#8e939c",
-          text: tl("Answer in terminal"),
-          onclick: () => actions.answerInTerminal(),
-        }),
-      );
     },
   };
 }

@@ -1,0 +1,23 @@
+{
+  "KPackageStructure": "KWin/Script",
+  "KPlugin": {
+    "Id": "coucou-focus",
+    "Name": "Coucou Focus Tracker",
+    "Description": "Reports active window changes to Coucou via DBus",
+    "Version": "1.0",
+    "License": "MIT",
+    "Authors": [
+      {
+        "Name": "Coucou"
+      }
+    ],
+    "Category": "Window Management",
+    "ServiceTypes": [
+      "KWin/Script"
+    ]
+  },
+  "X-Plasma-API": "javascript",
+  "X-Plasma-MainScript": "code/main.js",
+  "X-KDE-ConfigModule": "kcm_kwin_scripts",
+  "X-KDE-ParentApp": "kwin"
+}

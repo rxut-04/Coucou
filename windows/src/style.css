@@ -4278,4 +4278,69 @@ html[data-dir="rtl"] #views :is(.bubble, .reply .md-p, .reply .md-h, .reply .md-
   100% { opacity: 1; transform: translateY(0) scale(1); }
 }
 
+/* ── Interactive Terminal / Agent Input Bar inside Coucou Island ───────── */
 
+.coucou-interactive-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.coucou-interactive-actions .btn {
+  padding: 5px 12px;
+  font-size: calc(12px * var(--size-font-scale, 1.28));
+}
+
+.coucou-inline-input-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 2px;
+  width: 100%;
+}
+
+.coucou-inline-prompt-input {
+  flex: 1 1 auto;
+  min-width: 160px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(12, 14, 18, 0.72);
+  color: var(--ink);
+  font: 500 calc(12px * var(--size-font-scale, 1.28)) var(--font);
+  outline: none;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.coucou-inline-prompt-input::placeholder {
+  color: rgba(255, 255, 255, 0.42);
+}
+
+.coucou-inline-prompt-input:focus {
+  border-color: rgba(74, 222, 128, 0.75);
+  background: rgba(16, 20, 26, 0.92);
+  box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.2);
+}
+
+.coucou-inline-send-btn {
+  flex: 0 0 auto;
+  height: 30px;
+  padding: 0 13px !important;
+  font-size: calc(11.5px * var(--size-font-scale, 1.28)) !important;
+  font-weight: 600 !important;
+}
+
+.coucou-inline-term-btn {
+  flex: 0 0 auto;
+  color: rgba(255, 255, 255, 0.56);
+  padding: 4px 8px;
+  border-radius: 999px;
+  transition: color 0.14s ease, background 0.14s ease;
+}
+
+.coucou-inline-term-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}

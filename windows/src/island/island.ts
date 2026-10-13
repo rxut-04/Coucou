@@ -283,9 +283,22 @@ export class Island {
 
   /** The request has its answer: the card goes and the session carries on. */
   private closeApproval() {
+    const pillId = State.pendingApproval?.pillId;
+    const reqId = State.pendingApproval?.requestId ?? "";
     State.endApproval();
     this.fsm.pinned = false;
+    void Bridge.focusWindow(false);
     this.setView(State.defaultView());
+    if (pillId && (reqId.startsWith("pty-") || reqId.startsWith("ag-"))) {
+      window.setTimeout(() => {
+        if (State.pendingApproval?.pillId === pillId) return;
+        if (!State.isKept(pillId)) {
+          State.removeTask(pillId);
+        } else {
+          State.updateTask(pillId, "idle");
+        }
+      }, 2200);
+    }
   }
 
   /**
@@ -366,6 +379,23 @@ export class Island {
         if (!req) return;
         Sound.play("approve");
         void Bridge.approvalAnswer(req.requestId, answers);
+        this.closeApproval();
+      },
+      submitInput: (text) => {
+        const req = State.pendingApproval;
+        if (!req) return;
+        Sound.play("approve");
+        void Bridge.submitInteractiveInput(req.requestId, text, true);
+        if (!req.requestId.startsWith("pty-") && !req.requestId.startsWith("ag-")) {
+          const lower = text.trim().toLowerCase();
+          if (lower === "y" || lower === "yes" || lower === "allow" || lower === "1") {
+            void Bridge.approvalDecision(req.requestId, "allow");
+          } else if (lower === "n" || lower === "no" || lower === "deny" || text === "\u0003") {
+            void Bridge.approvalDecision(req.requestId, "deny");
+          } else {
+            void Bridge.approvalAnswer(req.requestId, { [req.command || req.tool]: text });
+          }
+        }
         this.closeApproval();
       },
       answerInTerminal: () => {

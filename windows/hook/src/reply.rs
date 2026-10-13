@@ -9,10 +9,9 @@
 use serde_json::{json, Map, Value};
 
 /// The agents whose permission requests the island can answer: Claude Code
-/// (no `--agent`), Codex, Copilot CLI and Muse Code. Any decision for another
-/// agent is ignored here too, whatever the app sent.
+/// (no `--agent`), Codex, Copilot CLI, Muse Code, OpenCode and Antigravity.
 pub fn takes_decisions(agent: &str) -> bool {
-    matches!(agent, "" | "codex" | "copilot" | "muse")
+    matches!(agent, "" | "codex" | "copilot" | "muse" | "opencode" | "antigravity")
 }
 
 /// Agents that read a JSON object on stdout after every hook and get `{}` —
@@ -22,8 +21,7 @@ fn wants_json(agent: &str) -> bool {
 }
 
 /// The line to print for `event` from `agent`, given the island's `decision`
-/// (`None`: nobody clicked) and, for Claude Code's AskUserQuestion, the
-/// question as it was asked.
+/// (`None`: nobody clicked) and, for AskUserQuestion, the question as it was asked.
 pub fn stdout(agent: &str, event: &str, decision: Option<&str>, question: Option<&Value>) -> Option<String> {
     if event != "PermissionRequest" {
         return wants_json(agent).then(|| "{}".to_string());
@@ -44,9 +42,13 @@ pub fn stdout(agent: &str, event: &str, decision: Option<&str>, question: Option
                 None => None,
             }
         }
-        // Claude Code and Codex share the documented hookSpecificOutput. Only
-        // Claude Code asks questions.
-        "" => decision.and_then(|d| decision_json(d, question)),
+        // Antigravity expects "{}" when no decision was made, or hookSpecificOutput when decided.
+        "antigravity" => match decision.and_then(|d| decision_json(d, question)) {
+            Some(out) => Some(out),
+            None => Some("{}".to_string()),
+        },
+        // Claude Code, OpenCode and Codex share the documented hookSpecificOutput.
+        "" | "opencode" => decision.and_then(|d| decision_json(d, question)),
         _ => decision.and_then(|d| decision_json(d, None)),
     }
 }
@@ -106,9 +108,17 @@ fn answers_fit(question: &Value, answers: &Map<String, Value>) -> bool {
         let labels: Vec<&str> = item
             .get("options")
             .and_then(|o| o.as_array())
-            .map(|opts| opts.iter().filter_map(|o| o.get("label").and_then(|l| l.as_str())).collect())
+            .map(|opts| {
+                opts.iter()
+                    .filter_map(|o| o.as_str().or_else(|| o.get("label").and_then(|l| l.as_str())))
+                    .collect()
+            })
             .unwrap_or_default();
-        let multi = item.get("multiSelect").and_then(|m| m.as_bool()).unwrap_or(false);
+        let multi = item
+            .get("multiSelect")
+            .or_else(|| item.get("is_multi_select"))
+            .and_then(|m| m.as_bool())
+            .unwrap_or(false);
         match answers.get(text) {
             Some(Value::String(pick)) if !multi => labels.contains(&pick.as_str()),
             Some(Value::Array(picks)) if multi => {

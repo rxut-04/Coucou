@@ -99,8 +99,14 @@ export interface ApprovalInfo {
   pillId: string;
   tool: string;
   command: string;
-  /** Set when Claude Code is asking a question rather than for a permission. */
+  /** Set when Claude Code / OpenCode / Antigravity / Terminal is asking a question rather than for a permission. */
   questions?: AskedQuestion[];
+  /** Optional prompt kind ("confirm" | "password" | "options" | "input"). */
+  promptKind?: string;
+  /** Optional human-friendly source app label (e.g. "OpenCode (VS Code)", "Konsole"). */
+  appLabel?: string;
+  /** Optional quick-action options for interactive terminal/agent prompts. */
+  quickOptions?: { label: string; value: string }[];
 }
 
 /** One question of an AskUserQuestion call. */

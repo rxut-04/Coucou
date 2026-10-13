@@ -18,14 +18,25 @@ export const KNOWN_AGENTS: Record<string, KnownAgent> = {
   amp: { name: "Amp", color: "#F59E0B" },
   hermes: { name: "Hermes", color: "#C084FC" },
   "claude-desktop": { name: "Claude Desktop", color: "#D97757" },
+  konsole: { name: "Konsole", color: "#10B981" },
+  terminal: { name: "Terminal", color: "#34D399" },
+  vscode: { name: "VS Code Terminal", color: "#3B82F6" },
 };
 
 /**
- * Agents whose permission requests get an Allow / Deny card, as on the Mac.
- * Must match `takes_decisions` in the relay (hook/src/reply.rs): any other
- * agent's request is handed straight back to its terminal.
+ * Agents whose permission requests get an Allow / Deny / Interactive input card.
+ * Must match `takes_decisions` in the relay (hook/src/reply.rs) plus live PTY/IDE monitors.
  */
-export const APPROVAL_AGENTS = new Set(["codex", "copilot", "muse"]);
+export const APPROVAL_AGENTS = new Set([
+  "codex",
+  "copilot",
+  "muse",
+  "opencode",
+  "antigravity",
+  "konsole",
+  "terminal",
+  "vscode",
+]);
 
 /** Same rule as HookServer.validateAgent on macOS. "claude" is reserved. */
 export function validateAgent(raw: string | undefined): string | null {

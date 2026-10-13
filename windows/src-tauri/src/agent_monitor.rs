@@ -9,9 +9,10 @@
 
 use crate::db::{AgentWaitRecord, DbState, WeeklyAgentWaitStats};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::collections::HashMap;
 use std::fs;
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -63,12 +64,21 @@ pub struct AgentOverrideEntry {
 
 pub struct AgentMonitorState {
     agents: Mutex<HashMap<String, AgentLiveStatus>>,
+    pub dismissed_requests: Mutex<HashMap<String, i64>>,
+    pub active_interactive_request: Mutex<Option<(String, String, String)>>,
 }
 
 fn unix_now() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+fn unix_now_ms() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
         .unwrap_or(0)
 }
 
@@ -360,7 +370,35 @@ impl AgentMonitorState {
         );
         Self {
             agents: Mutex::new(map),
+            dismissed_requests: Mutex::new(HashMap::new()),
+            active_interactive_request: Mutex::new(None),
         }
+    }
+
+    pub fn mark_request_dismissed(&self, request_id: &str) {
+        if request_id.is_empty() {
+            return;
+        }
+        let now = unix_now();
+        if let Ok(mut map) = self.dismissed_requests.lock() {
+            map.retain(|_, ts| now - *ts < 600);
+            map.insert(request_id.to_string(), now);
+        }
+        if let Ok(mut active) = self.active_interactive_request.lock() {
+            if active.as_ref().map(|(id, _, _)| id == request_id).unwrap_or(false) {
+                *active = None;
+            }
+        }
+    }
+
+    pub fn is_request_dismissed(&self, request_id: &str) -> bool {
+        let now = unix_now();
+        if let Ok(map) = self.dismissed_requests.lock() {
+            if let Some(&ts) = map.get(request_id) {
+                return now - ts < 180;
+            }
+        }
+        false
     }
 
     pub fn snapshot(&self, db: Option<&DbState>) -> AgentMonitorSnapshot {
@@ -517,6 +555,557 @@ impl AgentMonitorState {
     }
 }
 
+/// Checks if a command string is already executing in `/proc/*/cmdline` so we don't
+/// show an approval prompt for an Antigravity command that was already approved and is running.
+fn is_command_running_in_proc(cmd_snippet: &str) -> bool {
+    let needle = cmd_snippet.trim();
+    if needle.is_empty() {
+        return false;
+    }
+    let check_prefix = if needle.len() > 28 { &needle[..28] } else { needle };
+    let Ok(entries) = fs::read_dir("/proc") else {
+        return false;
+    };
+    let my_pid = std::process::id().to_string();
+    for entry in entries.flatten() {
+        let fname = entry.file_name();
+        let pid_str = fname.to_string_lossy();
+        if !pid_str.chars().all(|c| c.is_ascii_digit()) || pid_str == my_pid {
+            continue;
+        }
+        if let Ok(raw) = fs::read(entry.path().join("cmdline")) {
+            let cmd = String::from_utf8_lossy(&raw).replace('\0', " ");
+            if cmd.contains(check_prefix) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Detects if Antigravity's newest conversation `transcript.jsonl` is currently waiting
+/// on an interactive question (`ask_question`) or an unsandboxed command approval (`run_command`).
+/// Returns `Some((request_id, session_id, agent_id, hook_payload_json))`.
+pub fn detect_antigravity_interactive_prompt(
+    brain_root: &Path,
+    now: i64,
+) -> Option<(String, String, String, serde_json::Value)> {
+    let entries = fs::read_dir(brain_root).ok()?;
+    let mut newest_path: Option<PathBuf> = None;
+    let mut newest_conv_id = String::new();
+    let mut newest_mtime: i64 = 0;
+
+    for entry in entries.flatten() {
+        let conv_dir = entry.path();
+        let candidate = conv_dir
+            .join(".system_generated")
+            .join("logs")
+            .join("transcript.jsonl");
+        if let Some(mtime) = file_mtime_secs(&candidate) {
+            if mtime >= newest_mtime {
+                newest_mtime = mtime;
+                newest_conv_id = entry.file_name().to_string_lossy().into_owned();
+                newest_path = Some(candidate);
+            }
+        }
+    }
+
+    let path = newest_path?;
+    if now - newest_mtime > 120 {
+        return None;
+    }
+
+    let tail = read_tail_string(&path, 24_576)?;
+    let last_line = tail.lines().rev().find(|l| !l.trim().is_empty())?;
+    let val = serde_json::from_str::<serde_json::Value>(last_line).ok()?;
+
+    let step_type = val.get("type").and_then(|v| v.as_str()).unwrap_or("");
+    if step_type != "PLANNER_RESPONSE" {
+        return None;
+    }
+    let step_index = val.get("step_index").and_then(|v| v.as_i64()).unwrap_or(0);
+    let tool_calls = val.get("tool_calls").and_then(|v| v.as_array())?;
+    if tool_calls.is_empty() {
+        return None;
+    }
+
+    for tc in tool_calls {
+        let name = tc.get("name").and_then(|v| v.as_str()).unwrap_or("");
+        let Some(args) = tc.get("args").and_then(|v| v.as_object()) else {
+            continue;
+        };
+
+        // 1. Antigravity ask_question tool call
+        if name.ends_with("ask_question") {
+            let Some(raw_questions) = args.get("questions").and_then(|v| v.as_array()) else {
+                continue;
+            };
+            let mut normalized = Vec::new();
+            for q in raw_questions {
+                let q_text = q.get("question").and_then(|v| v.as_str()).unwrap_or("").trim();
+                if q_text.is_empty() {
+                    continue;
+                }
+                let multi = q
+                    .get("is_multi_select")
+                    .or_else(|| q.get("multiSelect"))
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let opts: Vec<serde_json::Value> = q
+                    .get("options")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|o| {
+                                if let Some(s) = o.as_str() {
+                                    Some(json!({ "label": s, "description": "" }))
+                                } else if let Some(lbl) = o.get("label").and_then(|v| v.as_str()) {
+                                    let desc = o.get("description").and_then(|v| v.as_str()).unwrap_or("");
+                                    Some(json!({ "label": lbl, "description": desc }))
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                if !opts.is_empty() {
+                    normalized.push(json!({
+                        "question": q_text,
+                        "multiSelect": multi,
+                        "options": opts,
+                    }));
+                }
+            }
+            if !normalized.is_empty() {
+                let req_id = format!("ag-q-{newest_conv_id}-{step_index}");
+                let payload = json!({
+                    "hook_event_name": "PermissionRequest",
+                    "request_id": req_id,
+                    "session_id": newest_conv_id,
+                    "coucou_agent": "antigravity",
+                    "tool_name": "AskUserQuestion",
+                    "tool_input": {
+                        "questions": normalized,
+                        "promptKind": "options",
+                        "appLabel": "Antigravity",
+                    }
+                });
+                return Some((req_id, newest_conv_id, "antigravity".to_string(), payload));
+            }
+        }
+
+        // 2. Antigravity run_command with BypassSandbox: true waiting for approval
+        if name.ends_with("run_command") {
+            let bypass = args
+                .get("BypassSandbox")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            if !bypass {
+                continue;
+            }
+            let cmd_line = args
+                .get("CommandLine")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim();
+            if cmd_line.is_empty() {
+                continue;
+            }
+            // Wait at least 1s and verify the command isn't already running in /proc
+            if now - newest_mtime >= 1 && !is_command_running_in_proc(cmd_line) {
+                let summary = args
+                    .get("toolSummary")
+                    .or_else(|| args.get("toolAction"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Run Command");
+                let cwd = args.get("Cwd").and_then(|v| v.as_str()).unwrap_or("");
+                let req_id = format!("ag-cmd-{newest_conv_id}-{step_index}");
+                let payload = json!({
+                    "hook_event_name": "PermissionRequest",
+                    "request_id": req_id,
+                    "session_id": newest_conv_id,
+                    "cwd": cwd,
+                    "coucou_agent": "antigravity",
+                    "tool_name": summary,
+                    "tool_input": {
+                        "command": cmd_line,
+                        "promptKind": "confirm",
+                        "appLabel": "Antigravity",
+                    }
+                });
+                return Some((req_id, newest_conv_id, "antigravity".to_string(), payload));
+            }
+        }
+    }
+
+    None
+}
+
+/// Finds the process holding the PTY master (`/dev/ptmx`) for `/dev/pts/<pts_index>`
+/// by inspecting `/proc/*/fdinfo/*` for `tty-index: <pts_index>`.
+/// Returns `Some((holder_pid, master_fd_path, holder_comm, holder_cmdline))`.
+pub fn find_pty_master(pts_index: u32) -> Option<(i32, PathBuf, String, String)> {
+    let entries = fs::read_dir("/proc").ok()?;
+    let target_tab = format!("tty-index:\t{pts_index}");
+    let target_space = format!("tty-index: {pts_index}");
+
+    for entry in entries.flatten() {
+        let fname = entry.file_name();
+        let pid_str = fname.to_string_lossy();
+        let Ok(pid) = pid_str.parse::<i32>() else {
+            continue;
+        };
+        let proc_dir = entry.path();
+        let fdinfo_dir = proc_dir.join("fdinfo");
+        let Ok(fds) = fs::read_dir(&fdinfo_dir) else {
+            continue;
+        };
+        for fd_entry in fds.flatten() {
+            let fd_name = fd_entry.file_name();
+            let Ok(info) = fs::read_to_string(fd_entry.path()) else {
+                continue;
+            };
+            if info.lines().any(|l| {
+                let t = l.trim();
+                t == target_tab || t == target_space
+            }) {
+                let fd_path = proc_dir.join("fd").join(&fd_name);
+                let comm = fs::read_to_string(proc_dir.join("comm"))
+                    .unwrap_or_default()
+                    .trim()
+                    .to_lowercase();
+                let cmdline = fs::read(proc_dir.join("cmdline"))
+                    .map(|b| String::from_utf8_lossy(&b).replace('\0', " ").to_lowercase())
+                    .unwrap_or_default();
+                return Some((pid, fd_path, comm, cmdline));
+            }
+        }
+    }
+    None
+}
+
+/// Writes bytes directly into the PTY master file descriptor for `/dev/pts/<pts_index>`,
+/// delivering keystrokes straight to the terminal session (Konsole, VS Code terminal,
+/// OpenCode, or normal terminal).
+pub fn write_to_pty_master(pts_index: u32, data: &[u8]) -> Result<usize, String> {
+    if let Some((_pid, fd_path, _comm, _cmd)) = find_pty_master(pts_index) {
+        let mut f = fs::OpenOptions::new()
+            .write(true)
+            .open(&fd_path)
+            .map_err(|e| format!("failed to open PTY master {}: {e}", fd_path.display()))?;
+        f.write_all(data)
+            .map_err(|e| format!("failed to write to PTY master {}: {e}", fd_path.display()))?;
+        let _ = f.flush();
+        return Ok(data.len());
+    }
+    Err(format!("could not locate PTY master for /dev/pts/{pts_index}"))
+}
+
+/// Resolves which agent/pill and human-readable label own `/dev/pts/<pts_index>`.
+fn classify_pty_owner(pts_index: u32, fg_comm: &str, fg_cmdline: &str) -> (String, String) {
+    let fg_lower = format!("{fg_comm} {fg_cmdline}").to_lowercase();
+    if fg_lower.contains("opencode") {
+        return ("opencode".to_string(), "OpenCode · Terminal".to_string());
+    }
+    if let Some((holder_pid, _fd_path, holder_comm, holder_cmd)) = find_pty_master(pts_index) {
+        let combined = format!("{holder_comm} {holder_cmd}");
+        if combined.contains("code") || combined.contains("vscode") {
+            return ("vscode".to_string(), "VS Code · Terminal".to_string());
+        }
+        if combined.contains("konsole") {
+            return ("konsole".to_string(), "Konsole".to_string());
+        }
+        // Check parent of holder_pid (e.g. VS Code's node ptyHost child)
+        if let Ok(stat) = fs::read_to_string(format!("/proc/{holder_pid}/stat")) {
+            if let Some(rparen) = stat.rfind(')') {
+                let fields: Vec<&str> = stat[rparen + 1..].split_whitespace().collect();
+                if let Some(ppid_str) = fields.get(1) {
+                    if let Ok(ppid) = ppid_str.parse::<i32>() {
+                        let pcomm = fs::read_to_string(format!("/proc/{ppid}/comm"))
+                            .unwrap_or_default()
+                            .to_lowercase();
+                        let pcmd = fs::read(format!("/proc/{ppid}/cmdline"))
+                            .map(|b| String::from_utf8_lossy(&b).replace('\0', " ").to_lowercase())
+                            .unwrap_or_default();
+                        if pcomm.contains("code") || pcmd.contains("code") {
+                            return ("vscode".to_string(), "VS Code · Terminal".to_string());
+                        }
+                        if pcomm.contains("konsole") || pcmd.contains("konsole") {
+                            return ("konsole".to_string(), "Konsole".to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    ("terminal".to_string(), "Terminal".to_string())
+}
+
+/// Scans `/proc` for any foreground process on `/dev/pts/<N>` (Konsole, VS Code integrated
+/// terminal, OpenCode CLI, or normal terminal) that is waiting for user keyboard input.
+pub fn detect_terminal_interactive_prompt(
+    seen_waiters: &mut HashMap<(u32, i32), u128>,
+    now_ms: u128,
+) -> Option<(String, String, String, serde_json::Value)> {
+    let entries = fs::read_dir("/proc").ok()?;
+    let mut current_waiting: HashMap<(u32, i32), (String, String, String, String)> = HashMap::new();
+
+    const IDLE_SHELLS: &[&str] = &["bash", "zsh", "fish", "sh", "dash", "nu", "tcsh", "csh"];
+    const IGNORED_TUIS: &[&str] = &[
+        "vim", "nvim", "nano", "vi", "emacs", "less", "more", "man", "top", "htop", "btop",
+        "tmux", "screen", "zellij", "watch", "tail", "journalctl", "cat", "coucou", "cargo",
+        "rustc", "rust-analyzer", "esbuild", "vite", "node", "bun",
+    ];
+
+    for entry in entries.flatten() {
+        let fname = entry.file_name();
+        let pid_str = fname.to_string_lossy();
+        let Ok(pid) = pid_str.parse::<i32>() else {
+            continue;
+        };
+        let proc_dir = entry.path();
+        let Ok(stat) = fs::read_to_string(proc_dir.join("stat")) else {
+            continue;
+        };
+        let Some(lparen) = stat.find('(') else {
+            continue;
+        };
+        let Some(rparen) = stat.rfind(')') else {
+            continue;
+        };
+        let comm = stat[lparen + 1..rparen].trim().to_string();
+        let comm_lower = comm.to_lowercase();
+        let fields: Vec<&str> = stat[rparen + 1..].split_whitespace().collect();
+        if fields.len() < 6 {
+            continue;
+        }
+        let state_ch = fields[0];
+        if state_ch != "S" {
+            continue;
+        }
+        let pgrp: i32 = fields[2].parse().unwrap_or(-1);
+        let session: i32 = fields[3].parse().unwrap_or(-1);
+        let tty_nr: i32 = fields[4].parse().unwrap_or(0);
+        let tpgid: i32 = fields[5].parse().unwrap_or(-2);
+
+        // Must be a pseudo-terminal slave /dev/pts/<N> (major 136) and in the foreground process group
+        if (tty_nr >> 8) != 136 || pgrp <= 0 || pgrp != tpgid {
+            continue;
+        }
+        let pts_index = (tty_nr & 0xff) as u32;
+
+        let cmdline = fs::read(proc_dir.join("cmdline"))
+            .map(|b| {
+                String::from_utf8_lossy(&b)
+                    .split('\0')
+                    .filter(|s| !s.is_empty())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+            .unwrap_or_else(|_| comm.clone());
+        let cmd_lower = cmdline.to_lowercase();
+
+        // Skip idle interactive login shells at their normal prompt
+        if IDLE_SHELLS.contains(&comm_lower.as_str()) {
+            let is_read_prompt = cmd_lower.contains("read ") || cmd_lower.contains("select ");
+            if pid == session && !is_read_prompt {
+                continue;
+            }
+            if !is_read_prompt && (cmd_lower == comm_lower || cmd_lower.starts_with('-')) {
+                continue;
+            }
+        }
+
+        // Skip background compilers/servers or full-screen TUIs unless they are explicitly running an interactive prompt script
+        if IGNORED_TUIS.contains(&comm_lower.as_str())
+            && !cmd_lower.contains("prompt")
+            && !cmd_lower.contains("confirm")
+            && !cmd_lower.contains("input")
+        {
+            continue;
+        }
+
+        let wchan = fs::read_to_string(proc_dir.join("wchan"))
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+
+        let is_auth_or_pkg = matches!(
+            comm_lower.as_str(),
+            "sudo" | "su" | "pkexec" | "ssh" | "ssh-keygen" | "gpg" | "apt" | "apt-get" | "dpkg" | "pacman" | "yay" | "dnf"
+        );
+
+        let waiting_on_tty = wchan == "n_tty_read"
+            || (is_auth_or_pkg
+                && matches!(
+                    wchan.as_str(),
+                    "n_tty_read" | "wait_woken" | "do_select" | "do_sys_poll" | "ep_poll"
+                ));
+
+        if !waiting_on_tty {
+            continue;
+        }
+
+        let cwd = fs::read_link(proc_dir.join("cwd"))
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default();
+
+        current_waiting.insert((pts_index, pid), (comm, cmdline, wchan, cwd));
+    }
+
+    // Prune waiters that are no longer waiting
+    seen_waiters.retain(|k, _| current_waiting.contains_key(k));
+
+    // Record start time for current waiters and pick the first one that has waited >= 400ms
+    for (&key, (comm, cmdline, _wchan, cwd)) in &current_waiting {
+        let first_seen = *seen_waiters.entry(key).or_insert(now_ms);
+        if now_ms.saturating_sub(first_seen) < 400 {
+            continue;
+        }
+        let (pts_index, pid) = key;
+        let (agent_id, app_label) = classify_pty_owner(pts_index, comm, cmdline);
+        let comm_lower = comm.to_lowercase();
+        let cmd_lower = cmdline.to_lowercase();
+
+        let (prompt_kind, tool_label, quick_options) = if comm_lower == "sudo"
+            || comm_lower == "su"
+            || comm_lower == "pkexec"
+            || comm_lower == "ssh"
+            || cmd_lower.contains("password")
+            || cmd_lower.contains("passphrase")
+        {
+            (
+                "password",
+                format!("🔒 Password required ({app_label})"),
+                json!([
+                    { "label": "Cancel (Ctrl+C)", "value": "__CTRL_C__" }
+                ]),
+            )
+        } else if matches!(
+            comm_lower.as_str(),
+            "apt" | "apt-get" | "dpkg" | "pacman" | "yay" | "dnf" | "rm" | "cp" | "mv" | "git"
+        ) || cmd_lower.contains("[y/n]")
+            || cmd_lower.contains("(y/n)")
+            || cmd_lower.contains("confirm")
+        {
+            (
+                "confirm",
+                format!("{app_label} · Confirm"),
+                json!([
+                    { "label": "Yes (y)", "value": "y" },
+                    { "label": "No (n)", "value": "n" },
+                    { "label": "Enter ↵", "value": "__ENTER__" },
+                    { "label": "Ctrl+C", "value": "__CTRL_C__" }
+                ]),
+            )
+        } else {
+            (
+                "input",
+                format!("{app_label} · Input / Option"),
+                json!([
+                    { "label": "Yes (y)", "value": "y" },
+                    { "label": "No (n)", "value": "n" },
+                    { "label": "1", "value": "1" },
+                    { "label": "2", "value": "2" },
+                    { "label": "3", "value": "3" },
+                    { "label": "Enter ↵", "value": "__ENTER__" },
+                    { "label": "Ctrl+C", "value": "__CTRL_C__" }
+                ]),
+            )
+        };
+
+        let req_id = format!("pty-{pts_index}-{pid}");
+        let session_id = format!("pts-{pts_index}");
+        let display_cmd = if cmdline.trim().is_empty() {
+            format!("/dev/pts/{pts_index} ({comm})")
+        } else {
+            cmdline.trim().to_string()
+        };
+
+        let payload = json!({
+            "hook_event_name": "PermissionRequest",
+            "request_id": req_id,
+            "session_id": session_id,
+            "cwd": cwd,
+            "coucou_agent": agent_id,
+            "tool_name": tool_label,
+            "tool_input": {
+                "command": display_cmd,
+                "promptKind": prompt_kind,
+                "appLabel": app_label,
+                "ptsIndex": pts_index,
+                "pid": pid,
+                "quickOptions": quick_options,
+            }
+        });
+
+        return Some((req_id, session_id, agent_id, payload));
+    }
+
+    None
+}
+
+/// Handles an interactive decision, option pick, or custom text/password submitted from the Coucou island.
+/// Returns `true` if handled as an interactive PTY / Antigravity request.
+pub fn handle_interactive_input(
+    app: &AppHandle,
+    request_id: &str,
+    input_text: &str,
+    append_newline: bool,
+) -> bool {
+    if let Some(state) = app.try_state::<Arc<AgentMonitorState>>() {
+        state.mark_request_dismissed(request_id);
+    }
+
+    // 1. Direct Linux PTY terminal input (`pty-<pts_index>-<pid>`)
+    if let Some(rest) = request_id.strip_prefix("pty-") {
+        let mut parts = rest.split('-');
+        if let Some(pts_str) = parts.next() {
+            if let Ok(pts_index) = pts_str.parse::<u32>() {
+                let bytes: Vec<u8> = match input_text {
+                    "__CTRL_C__" => vec![0x03],
+                    "__ENTER__" => b"\r".to_vec(),
+                    "allow" => b"y\r".to_vec(),
+                    "deny" => b"n\r".to_vec(),
+                    other => {
+                        if append_newline {
+                            format!("{other}\r").into_bytes()
+                        } else {
+                            other.as_bytes().to_vec()
+                        }
+                    }
+                };
+                if let Err(err) = write_to_pty_master(pts_index, &bytes) {
+                    crate::log::line(format!("pty input error for {request_id}: {err}"));
+                } else {
+                    crate::log::line(format!("pty input sent to /dev/pts/{pts_index} for {request_id}"));
+                }
+                return true;
+            }
+        }
+    }
+
+    // 2. Antigravity interactive prompt (`ag-q-...` or `ag-cmd-...`)
+    if request_id.starts_with("ag-") {
+        let clean = match input_text {
+            "__ENTER__" => "",
+            "__CTRL_C__" => "",
+            other => other,
+        };
+        if !clean.is_empty() {
+            // Copy selected option / text to clipboard so it's immediately ready, and focus Antigravity
+            let _ = std::process::Command::new("wl-copy").arg(clean).spawn();
+        }
+        if let Some(ft) = app.try_state::<Arc<crate::focus_tracker::FocusTrackerState>>() {
+            crate::focus_tracker::activate_kwin_window(ft.inner(), "", 0, "antigravity");
+        }
+        return true;
+    }
+
+    false
+}
+
 pub fn spawn_agent_monitor(app: AppHandle, state: Arc<AgentMonitorState>) {
     tauri::async_runtime::spawn(async move {
         let home = home_dir();
@@ -528,9 +1117,11 @@ pub fn spawn_agent_monitor(app: AppHandle, state: Arc<AgentMonitorState>) {
             .join("opencode")
             .join("log")
             .join("opencode.log");
+        let mut seen_pty_waiters: HashMap<(u32, i32), u128> = HashMap::new();
 
         loop {
             let now = unix_now();
+            let now_ms = unix_now_ms();
             let overrides = read_overrides();
             let db_state = app.try_state::<DbState>();
             let db_ref = db_state.as_ref().map(|s| s.inner());
@@ -625,9 +1216,67 @@ pub fn spawn_agent_monitor(app: AppHandle, state: Arc<AgentMonitorState>) {
                 let _ = app.emit("agent-wait-event", &evt);
             }
 
-            tokio::time::sleep(Duration::from_millis(1200)).await;
+            // 4. Interactive Input / Option Selection Detector (Antigravity + Terminal / Konsole / VS Code / OpenCode PTY)
+            let next_prompt = detect_antigravity_interactive_prompt(&brain_root, now)
+                .or_else(|| detect_terminal_interactive_prompt(&mut seen_pty_waiters, now_ms))
+                .filter(|(req_id, _, _, _)| !state.is_request_dismissed(req_id));
+
+            let prev_active = state.active_interactive_request.lock().unwrap().clone();
+            match (prev_active, next_prompt) {
+                (Some((prev_id, prev_sess, prev_agent)), None) => {
+                    // The waiting prompt was answered or finished in the terminal/agent: dismiss the card
+                    *state.active_interactive_request.lock().unwrap() = None;
+                    let dismiss_payload = json!({
+                        "hook_event_name": "Stop",
+                        "request_id": prev_id,
+                        "session_id": prev_sess,
+                        "coucou_agent": prev_agent,
+                    });
+                    let _ = app.emit_to(crate::island::WINDOW_LABEL, "hook", dismiss_payload);
+                }
+                (prev, Some((req_id, sess_id, agent_id, payload))) => {
+                    let is_new = prev
+                        .as_ref()
+                        .map(|(id, _, _)| id != &req_id)
+                        .unwrap_or(true);
+                    if is_new {
+                        *state.active_interactive_request.lock().unwrap() =
+                            Some((req_id, sess_id, agent_id));
+                        let _ = app.emit_to(crate::island::WINDOW_LABEL, "hook", payload);
+                    }
+                }
+                (None, None) => {}
+            }
+
+            tokio::time::sleep(Duration::from_millis(750)).await;
         }
     });
+}
+
+#[tauri::command]
+pub fn submit_interactive_input(
+    app: AppHandle,
+    request_id: String,
+    input_text: String,
+    append_newline: Option<bool>,
+) -> bool {
+    let newline = append_newline.unwrap_or(true);
+    if handle_interactive_input(&app, &request_id, &input_text, newline) {
+        return true;
+    }
+    // If it was a standard hook pipe request (e.g. OpenCode plugin or Claude Code),
+    // map "y"/"yes"/"allow" -> "allow", "n"/"no"/"deny" -> "deny", or answer question.
+    let lower = input_text.trim().to_lowercase();
+    if lower == "y" || lower == "yes" || lower == "allow" {
+        crate::pipe::answer(&app, &request_id, "allow");
+        return true;
+    }
+    if lower == "n" || lower == "no" || lower == "deny" || input_text == "__CTRL_C__" {
+        crate::pipe::answer(&app, &request_id, "deny");
+        return true;
+    }
+    crate::pipe::answer(&app, &request_id, "allow");
+    true
 }
 
 #[tauri::command]

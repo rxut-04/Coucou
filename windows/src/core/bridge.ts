@@ -137,6 +137,10 @@ export const Bridge = {
   /** "Nobody can act on this" — Claude Code asks in the terminal right away. */
   approvalDecline: (requestId: string) => call<void>("approval_decline", { requestId }),
 
+  /** Sends direct interactive input/option selection to a terminal PTY, OpenCode, or Antigravity prompt. */
+  submitInteractiveInput: (requestId: string, inputText: string, appendNewline = true) =>
+    call<boolean>("submit_interactive_input", { requestId, inputText, appendNewline }),
+
   // ── Chat, files, secrets ──────────────────────────────────────────────────
   /** One chat turn. The API key and any file bytes never leave Rust. */
   chatSend: (query: string, context: ChatContext | null) =>
