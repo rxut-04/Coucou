@@ -411,6 +411,131 @@ pub fn activate_kwin_window(
     true
 }
 
+pub fn close_kwin_window(
+    state: &Arc<FocusTrackerState>,
+    id: &str,
+    pid: i32,
+    resource_class: &str,
+) -> bool {
+    let clean_id = id.trim();
+    let clean_class = resource_class.trim().to_lowercase();
+    if clean_id.is_empty() && pid <= 0 && clean_class.is_empty() {
+        return false;
+    }
+
+    let id_json = serde_json::to_string(clean_id).unwrap_or_else(|_| "\"\"".to_string());
+    let class_json = serde_json::to_string(&clean_class).unwrap_or_else(|_| "\"\"".to_string());
+
+    let script_content = format!(
+        r#"// Coucou one-shot window close script (Wayland KWin 6)
+(function() {{
+    var targetId = {id_json};
+    var targetPid = {pid};
+    var targetClass = {class_json};
+    var source = typeof workspace.windowList === "function"
+        ? workspace.windowList()
+        : (typeof workspace.clientList === "function" ? workspace.clientList() : (workspace.windows || []));
+    var list = [];
+    if (Array.isArray(source)) {{
+        list = source;
+    }} else if (source && typeof source.length === "number") {{
+        for (var i = 0; i < source.length; i++) list.push(source[i]);
+    }}
+    var matched = null;
+    for (var i = 0; i < list.length; i++) {{
+        var w = list[i];
+        if (!w) continue;
+        var wid = w.internalId !== undefined && w.internalId !== null ? w.internalId.toString() : "";
+        if (targetId && wid === targetId) {{
+            matched = w;
+            break;
+        }}
+    }}
+    if (!matched && targetPid > 0) {{
+        for (var j = 0; j < list.length; j++) {{
+            var w2 = list[j];
+            if (!w2) continue;
+            var wpid = Number(w2.pid || 0);
+            var wcls = String(w2.resourceClass || w2.windowClass || "").toLowerCase();
+            if (wpid === targetPid && (!targetClass || wcls === targetClass || wcls.indexOf(targetClass) !== -1)) {{
+                matched = w2;
+                break;
+            }}
+        }}
+    }}
+    if (!matched && targetClass) {{
+        for (var k = 0; k < list.length; k++) {{
+            var w3 = list[k];
+            if (!w3) continue;
+            var cls3 = String(w3.resourceClass || w3.windowClass || "").toLowerCase();
+            if (cls3 === targetClass || cls3.indexOf(targetClass) !== -1) {{
+                matched = w3;
+                break;
+            }}
+        }}
+    }}
+    if (matched) {{
+        if (typeof matched.closeWindow === "function") {{
+            matched.closeWindow();
+        }}
+    }}
+}})();
+"#
+    );
+
+    let runtime_dir = std::env::var("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| std::env::temp_dir());
+    let script_path = runtime_dir.join("coucou-close-window.js");
+    let _ = std::fs::write(&script_path, script_content);
+
+    let mut snapshot = state.windows.lock().unwrap().clone();
+    let before_len = snapshot.len();
+    snapshot.retain(|w| {
+        let is_target = (!clean_id.is_empty() && w.id == clean_id)
+            || (clean_id.is_empty() && pid > 0 && w.pid == pid)
+            || (clean_id.is_empty()
+                && pid <= 0
+                && !clean_class.is_empty()
+                && w.resource_class.to_lowercase().contains(&clean_class));
+        !is_target
+    });
+    if snapshot.len() != before_len {
+        state.apply_snapshot(snapshot);
+    }
+
+    std::thread::spawn(move || {
+        let _ = busctl_call(&[
+            "--user", "call", "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting",
+            "unloadScript", "s", "coucou-close-window",
+        ]);
+        let path_str = script_path.to_string_lossy();
+        let loaded = busctl_call(&[
+            "--user", "call", "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting",
+            "loadScript", "ss", &path_str, "coucou-close-window",
+        ]);
+        if loaded.is_some() && loaded.as_deref() != Some("i -1") {
+            let _ = busctl_call(&[
+                "--user", "call", "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting",
+                "start", "",
+            ]);
+            std::thread::sleep(Duration::from_millis(120));
+            let _ = busctl_call(&[
+                "--user", "call", "org.kde.KWin", "/Scripting", "org.kde.kwin.Scripting",
+                "unloadScript", "s", "coucou-close-window",
+            ]);
+        }
+        #[cfg(target_os = "linux")]
+        if pid > 0 {
+            unsafe {
+                libc::kill(pid, libc::SIGTERM);
+            }
+        }
+    });
+
+    true
+}
+
 #[tauri::command]
 pub fn focus_tracker_activate_window(
     state: State<'_, Arc<FocusTrackerState>>,
@@ -419,6 +544,21 @@ pub fn focus_tracker_activate_window(
     resource_class: Option<String>,
 ) -> bool {
     activate_kwin_window(
+        state.inner(),
+        id.as_deref().unwrap_or(""),
+        pid.unwrap_or(0),
+        resource_class.as_deref().unwrap_or(""),
+    )
+}
+
+#[tauri::command]
+pub fn focus_tracker_close_window(
+    state: State<'_, Arc<FocusTrackerState>>,
+    id: Option<String>,
+    pid: Option<i32>,
+    resource_class: Option<String>,
+) -> bool {
+    close_kwin_window(
         state.inner(),
         id.as_deref().unwrap_or(""),
         pid.unwrap_or(0),

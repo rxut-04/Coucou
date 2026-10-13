@@ -1004,6 +1004,28 @@ class AppState {
   }
 
   /**
+   * Removes or terminates a sub pill session (agent task or desktop window) on click of '✕'.
+   */
+  removeSessionOrWindow(id: string, windowPid?: number, resourceClass?: string) {
+    this.removeTask(id);
+
+    const winMatch = this.desktopWindows.find((w) => windowId(w) === id || w.id === id);
+    const pid = windowPid || winMatch?.pid || 0;
+    const cls = resourceClass || winMatch?.resourceClass || "";
+    this.desktopWindows = this.desktopWindows.filter((w) => windowId(w) !== id && w.id !== id);
+
+    this.setPillBadge(id, null);
+
+    if (this.focusId === id) {
+      const remaining = this.otherTasks;
+      this.focusId = remaining[0]?.id ?? this.tasks[0]?.id ?? this.mainPillId;
+    }
+
+    void Bridge.focusTrackerCloseWindow(id, pid, cls);
+    this.notify();
+  }
+
+  /**
    * Creates the pill of a tagged agent on its first event; no-op if it exists.
    * Inserted right after the main pill so it is in the visible slice(0,4). A
    * catalog agent wears its catalog colour, as on macOS.

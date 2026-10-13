@@ -206,6 +206,8 @@ export const Bridge = {
   focusTrackerWindows: () => call<DesktopWindow[]>("focus_tracker_windows"),
   focusTrackerActivateWindow: (id: string, pid: number, resourceClass: string) =>
     call<boolean>("focus_tracker_activate_window", { id, pid, resourceClass }),
+  focusTrackerCloseWindow: (id: string, pid: number, resourceClass: string) =>
+    call<boolean>("focus_tracker_close_window", { id, pid, resourceClass }),
 
   // ── SQLite Tasks & 25-Minute Focus Sessions (src-tauri/src/db.rs) ────────
   taskCurrent: () => call<TaskRecord | null>("task_current"),

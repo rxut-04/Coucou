@@ -811,6 +811,7 @@ pub fn run() {
             workflow::workflow_update_active_window,
             focus_tracker::focus_tracker_windows,
             focus_tracker::focus_tracker_activate_window,
+            focus_tracker::focus_tracker_close_window,
             focus_tracker_is_coding,
             focus_tracker_window_info,
             focus_tracker_status,

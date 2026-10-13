@@ -2834,6 +2834,21 @@ function buildPill(task: AgentTask, actions: ViewActions): HTMLElement {
     badge.style.boxShadow = `0 0 4px ${colors[task.pillBadge]}99`;
     pill.append(badge);
   }
+
+  const closeBtn = h(
+    "button",
+    {
+      class: "pill-close-btn",
+      title: `Close / remove ${label} session`,
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        State.removeSessionOrWindow(task.id, task.windowPid, task.windowClass ?? task.name);
+      },
+    },
+    h("span", { text: "✕" }),
+  );
+  pill.append(closeBtn);
+
   return pill;
 }
 
