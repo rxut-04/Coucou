@@ -577,6 +577,34 @@ class AppState {
   /** Outfit shown on Mochi while the pointer rests on a wardrobe button. */
   wardrobePreview: Outfit | null = null;
 
+  /** Session objectives keyed by normalized app name (persisted in localStorage). */
+  sessionObjectives: Record<string, string> = (() => {
+    try {
+      const raw = localStorage.getItem("coucou_session_objectives");
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  })();
+
+  getSessionObjective(name: string): string {
+    const key = name.toLowerCase().trim();
+    return this.sessionObjectives[key] ?? "";
+  }
+
+  setSessionObjective(name: string, objective: string) {
+    const key = name.toLowerCase().trim();
+    if (objective.trim()) {
+      this.sessionObjectives[key] = objective.trim();
+    } else {
+      delete this.sessionObjectives[key];
+    }
+    try {
+      localStorage.setItem("coucou_session_objectives", JSON.stringify(this.sessionObjectives));
+    } catch {}
+    this.notify();
+  }
+
   lastActivity = performance.now();
 
   settings: Settings = { ...DEFAULT_SETTINGS };

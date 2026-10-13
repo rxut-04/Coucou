@@ -988,18 +988,18 @@ function buildOverview(actions: ViewActions): ViewHost {
         const isDesktopWindow = task.windowCaption !== undefined || State.desktopWindows.some((w) => {
           const id = w.id || `window-${w.pid}`;
           return id === task.id;
-        });
+        }) || task.id.startsWith("agent_") || task.id === "integration_claude";
         if (isDesktopWindow) {
           const quoteText = State.lastWorkflowQuote ?? "";
           const detailText = State.lastWorkflowDetail ?? "";
           const domainKey = `${State.browserDomain?.domain ?? ""}:${State.browserDomain?.category ?? ""}`;
-          // Exclude per-second detailText from cardKey so the card never re-mounts or blinks every second.
-          const key = `window~${task.id}~${task.windowActive ?? false}~${task.windowCaption ?? ""}~${quoteText}~${domainKey}`;
+          const currentGoal = State.getSessionObjective(task.name);
+          const key = `window~${task.id}~${task.windowActive ?? false}~${task.windowCaption ?? ""}~${quoteText}~${domainKey}~${currentGoal}`;
           if (key !== cardKey || mode !== "card") {
             cardKey = key;
             mode = "card";
             clear(leftBody);
-            leftBody.append(renderDesktopWindowCard(task, quoteText, detailText));
+            leftBody.append(renderDesktopWindowCard(task, quoteText, detailText, actions));
           } else {
             const statusBox = leftBody.querySelector<HTMLElement>(".wf-structured-status");
             if (statusBox) {
@@ -1010,6 +1010,7 @@ function buildOverview(actions: ViewActions): ViewHost {
                 populateStructuredWindowStatus(statusBox, statusColor, nextCap, task.name);
               }
             }
+            updateProgressInPlace(leftBody);
           }
         } else {
           const info = State.integrations[task.id];
@@ -2399,7 +2400,268 @@ function populateStructuredWindowStatus(
   }
 }
 
-function renderDesktopWindowCard(task: AgentTask, quoteText: string, detailText = ""): HTMLElement {
+function getDefaultSessionQuote(name: string): string {
+  const n = name.toLowerCase();
+  if (n.includes("antigravity")) {
+    return "Every session in Antigravity brings your vision closer to launch. 🚀";
+  }
+  if (n.includes("browser") || n.includes("brave") || n.includes("chrome") || n.includes("firefox")) {
+    return "Smart research is the launchpad for effortless implementation. 🚀";
+  }
+  if (n.includes("terminal") || n.includes("konsole")) {
+    return "Mastery of the shell is mastery of the machine. ⚡";
+  }
+  if (n.includes("code") || n.includes("claude") || n.includes("cursor")) {
+    return "First, solve the problem. Then, write the code. 🎯";
+  }
+  return "Small, consistent iterations turn ambitious ideas into reality. ✨";
+}
+
+function buildObjectiveRow(task: AgentTask): HTMLElement {
+  const currentObj = State.getSessionObjective(task.name);
+  const row = h("div", { class: "wf-session-row" });
+  const label = h(
+    "div",
+    { class: "wf-session-label" },
+    h("span", { class: "icon", text: "🎯" }),
+    h("span", { text: "Current Objective" }),
+  );
+  row.append(label);
+
+  const box = h("div", { class: "wf-objective-box" });
+  if (currentObj) {
+    const disp = h(
+      "div",
+      { class: "wf-objective-display", title: "Click ✕ to change goal" },
+      h("span", { class: "text", text: currentObj }),
+      h("span", {
+        class: "wf-objective-clear",
+        text: "✕",
+        title: "Clear goal",
+        onclick: (e: Event) => {
+          e.stopPropagation();
+          State.setSessionObjective(task.name, "");
+        },
+      }),
+    );
+    box.append(disp);
+  } else {
+    const isAntigravity = task.name.toLowerCase().includes("antigravity");
+    const isBrowser = task.name.toLowerCase().includes("browser") || (task.windowClass || "").toLowerCase().includes("brave");
+    const isTerminal = task.name.toLowerCase().includes("terminal") || task.name.toLowerCase().includes("konsole");
+    const isCode = task.name.toLowerCase().includes("code");
+    const placeholder = isAntigravity
+      ? "Type your goal for this session... (e.g., Fix gravity physics)"
+      : isBrowser
+        ? "What are you researching? (e.g., Deep dive React docs)"
+        : isTerminal
+          ? "Target command / goal... (e.g., Run test suite)"
+          : isCode
+            ? "Feature or bugfix goal... (e.g., Refactor auth router)"
+            : "Type your goal for this session...";
+
+    const input = h("input", {
+      type: "text",
+      class: "wf-objective-input",
+      placeholder,
+    }) as HTMLInputElement;
+
+    const saveGoal = () => {
+      const val = input.value.trim();
+      if (val) {
+        State.setSessionObjective(task.name, val);
+      }
+    };
+
+    input.addEventListener("keydown", (e: KeyboardEvent) => {
+      if (e.key === "Enter") {
+        saveGoal();
+      }
+    });
+
+    const addBtn = h(
+      "button",
+      {
+        class: "wf-objective-btn",
+        title: "Save objective",
+        onclick: (e: Event) => {
+          e.stopPropagation();
+          saveGoal();
+        },
+      },
+      h("span", { text: "+" }),
+    );
+
+    box.append(input, addBtn);
+  }
+  row.append(box);
+  return row;
+}
+
+function buildProgressRow(task: AgentTask): HTMLElement {
+  const row = h("div", { class: "wf-session-row" });
+  const label = h(
+    "div",
+    { class: "wf-session-label" },
+    h("span", { class: "icon", text: "🕒" }),
+    h("span", { text: "Session Progress" }),
+  );
+  row.append(label);
+
+  const container = h("div", { class: "wf-progress-container" });
+  const track = h("div", { class: "wf-progress-track" });
+  const fill = h("div", { class: "wf-progress-fill" });
+
+  const nameLow = task.name.toLowerCase();
+  if (nameLow.includes("antigravity")) {
+    fill.style.background = "linear-gradient(90deg, #c084fc 0%, #38bdf8 100%)";
+  } else if (nameLow.includes("terminal") || nameLow.includes("konsole")) {
+    fill.style.background = "linear-gradient(90deg, #10b981 0%, #34d399 100%)";
+  } else if (nameLow.includes("browser") || (task.windowClass || "").toLowerCase().includes("brave")) {
+    fill.style.background = "linear-gradient(90deg, #3b82f6 0%, #06b6d4 100%)";
+  } else {
+    fill.style.background = "linear-gradient(90deg, #6366f1 0%, #38bdf8 100%)";
+  }
+
+  let textLabel = "45m left of";
+  let pct = 45;
+
+  if (State.focusSession) {
+    const rem = State.focusSession.remainingSecs;
+    const tgt = State.focusSession.targetSecs;
+    pct = Math.min(100, Math.max(8, Math.round(((tgt - rem) / tgt) * 100)));
+    const remMins = Math.ceil(rem / 60);
+    const tgtMins = Math.round(tgt / 60);
+    textLabel = `${remMins}m left of ${tgtMins}m`;
+  } else if (State.browserSession) {
+    const rem = State.browserSession.remainingSecs;
+    const tgt = State.browserSession.targetSecs;
+    pct = Math.min(100, Math.max(8, Math.round(((tgt - rem) / tgt) * 100)));
+    const remMins = Math.ceil(rem / 60);
+    textLabel = `${remMins}m left of`;
+  } else {
+    pct = 50;
+    textLabel = "45m left of";
+  }
+
+  fill.style.width = `${pct}%`;
+  track.append(fill);
+
+  const textEl = h("span", { class: "wf-progress-text", text: textLabel });
+
+  const extendBtn = h(
+    "button",
+    {
+      class: "wf-progress-btn",
+      title: "Extend or start focus timer",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        if (State.focusSession) {
+          Workflow.addFocusSessionTime(900);
+        } else {
+          void Workflow.startFocusSession(2700);
+        }
+      },
+    },
+    h("span", { text: "+ Add time or Extend" }),
+  );
+
+  container.append(track, textEl, extendBtn);
+  row.append(container);
+  return row;
+}
+
+function buildQuickActionsRow(task: AgentTask, actions?: ViewActions): HTMLElement {
+  const row = h("div", { class: "wf-session-row" });
+  const label = h(
+    "div",
+    { class: "wf-session-label" },
+    h("span", { class: "icon", text: "⚡" }),
+    h("span", { text: "Quick Actions" }),
+  );
+  row.append(label);
+
+  const actionsRow = h("div", { class: "wf-actions-row" });
+  const nameLow = task.name.toLowerCase();
+
+  const makePill = (icon: string, text: string, onClick: () => void) =>
+    h(
+      "button",
+      {
+        class: "wf-action-pill",
+        onclick: (e: Event) => {
+          e.stopPropagation();
+          onClick();
+        },
+      },
+      h("span", { text: icon }),
+      h("span", { text }),
+    );
+
+  if (nameLow.includes("antigravity")) {
+    actionsRow.append(
+      makePill("📝", "Notes", () => actions?.setView("note")),
+      makePill("📁", "Files", () => void Bridge.openSession(null, ".")),
+      makePill("💬", "Brainstorm", () => actions?.setView("prompt")),
+    );
+  } else if (nameLow.includes("browser") || (task.windowClass || "").toLowerCase().includes("brave")) {
+    actionsRow.append(
+      makePill("🔍", "Search", () => void Bridge.openUrl("https://www.google.com")),
+      makePill("📁", "Files", () => void Bridge.openSession(null, ".")),
+      makePill("📝", "Notes", () => actions?.setView("note")),
+    );
+  } else if (nameLow.includes("terminal") || nameLow.includes("konsole")) {
+    actionsRow.append(
+      makePill("⚡", "Clear", () => actions?.openTerminal()),
+      makePill("📁", "Files", () => void Bridge.openSession(null, ".")),
+      makePill("📜", "History", () => actions?.setView("prompt")),
+    );
+  } else if (nameLow.includes("code") || task.id.includes("claude")) {
+    actionsRow.append(
+      makePill("📝", "Notes", () => actions?.setView("note")),
+      makePill("📁", "Files", () => void Bridge.openInVSCode(".")),
+      makePill("⚡", "Terminal", () => actions?.openTerminal()),
+    );
+  } else {
+    actionsRow.append(
+      makePill("📝", "Notes", () => actions?.setView("note")),
+      makePill("📁", "Files", () => void Bridge.openSession(null, ".")),
+      makePill("💬", "Brainstorm", () => actions?.setView("prompt")),
+    );
+  }
+
+  row.append(actionsRow);
+  return row;
+}
+
+function updateProgressInPlace(card: HTMLElement) {
+  const fill = card.querySelector<HTMLElement>(".wf-progress-fill");
+  const textEl = card.querySelector<HTMLElement>(".wf-progress-text");
+  if (!fill || !textEl) return;
+
+  let textLabel = "45m left of";
+  let pct = 45;
+
+  if (State.focusSession) {
+    const rem = State.focusSession.remainingSecs;
+    const tgt = State.focusSession.targetSecs;
+    pct = Math.min(100, Math.max(8, Math.round(((tgt - rem) / tgt) * 100)));
+    const remMins = Math.ceil(rem / 60);
+    const tgtMins = Math.round(tgt / 60);
+    textLabel = `${remMins}m left of ${tgtMins}m`;
+  } else if (State.browserSession) {
+    const rem = State.browserSession.remainingSecs;
+    const tgt = State.browserSession.targetSecs;
+    pct = Math.min(100, Math.max(8, Math.round(((tgt - rem) / tgt) * 100)));
+    const remMins = Math.ceil(rem / 60);
+    textLabel = `${remMins}m left of`;
+  }
+
+  fill.style.width = `${pct}%`;
+  textEl.textContent = textLabel;
+}
+
+function renderDesktopWindowCard(task: AgentTask, quoteText: string, detailText = "", actions?: ViewActions): HTMLElement {
   const isActive = task.windowActive ?? (task.state !== "idle");
   const statusColor = isActive ? "#22C55E" : "#6B7079";
   const statusLabel = detailText || task.windowCaption || task.name;
@@ -2414,6 +2676,16 @@ function renderDesktopWindowCard(task: AgentTask, quoteText: string, detailText 
         text: `${bDomain.domain} · ${bDomain.category}`,
       })
     : null;
+
+  const displayQuote = quoteText || getDefaultSessionQuote(task.name);
+
+  const modules = h(
+    "div",
+    { class: "wf-session-modules" },
+    buildObjectiveRow(task),
+    buildProgressRow(task),
+    buildQuickActionsRow(task, actions),
+  );
 
   const statusContainer = h("div", { class: "int-status wf-structured-status" });
   populateStructuredWindowStatus(statusContainer, statusColor, statusLabel, task.name);
@@ -2439,9 +2711,10 @@ function renderDesktopWindowCard(task: AgentTask, quoteText: string, detailText 
       h("span", { text: isActive ? "Active" : "Idle" }),
       domainBadgeEl,
     ),
-    quoteText
-      ? h("div", { class: "wf-note-msg", text: quoteText })
+    displayQuote
+      ? h("div", { class: "wf-note-msg", text: displayQuote })
       : null,
+    modules,
     statusContainer,
   );
 }

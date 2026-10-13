@@ -1770,6 +1770,227 @@ input[type="range"]::-webkit-slider-thumb {
   text-decoration: underline;
 }
 
+/* ── Interactive Session Modules inside Main Pill ───────────────────────── */
+
+.wf-session-modules {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin: 6px 0;
+  width: 100%;
+}
+
+.wf-session-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: var(--font);
+  min-height: 28px;
+  flex-wrap: nowrap;
+}
+
+.wf-session-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink, #f1f5f9);
+  white-space: nowrap;
+  min-width: 140px;
+  flex-shrink: 0;
+  letter-spacing: -0.1px;
+}
+
+.wf-session-label .icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+/* Objective Input & Pill */
+.wf-objective-box {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  max-width: 380px;
+  min-width: 0;
+}
+
+.wf-objective-input {
+  flex: 1;
+  height: 28px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(168, 85, 247, 0.4);
+  border-radius: 999px;
+  padding: 0 14px;
+  font-size: 11.5px;
+  font-family: var(--font);
+  color: var(--ink, #f8fafc);
+  outline: none;
+  transition: all 0.15s ease;
+  min-width: 0;
+}
+
+.wf-objective-input:focus {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(168, 85, 247, 0.8);
+  box-shadow: 0 0 10px rgba(168, 85, 247, 0.28);
+}
+
+.wf-objective-input::placeholder {
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.wf-objective-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.wf-objective-btn:hover {
+  background: rgba(168, 85, 247, 0.3);
+  border-color: rgba(168, 85, 247, 0.6);
+  color: #fff;
+}
+
+.wf-objective-display {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(168, 85, 247, 0.14);
+  border: 1px solid rgba(168, 85, 247, 0.4);
+  font-size: 11.5px;
+  font-weight: 500;
+  color: #f1f5f9;
+  max-width: 380px;
+  min-width: 0;
+}
+
+.wf-objective-display .text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wf-objective-clear {
+  cursor: pointer;
+  opacity: 0.65;
+  font-size: 11px;
+  transition: opacity 0.15s ease;
+  padding: 0 2px;
+}
+
+.wf-objective-clear:hover {
+  opacity: 1;
+  color: #f87171;
+}
+
+/* Session Progress */
+.wf-progress-container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.wf-progress-track {
+  width: 145px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.wf-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+
+.wf-progress-text {
+  font-size: 11.5px;
+  color: var(--dim-2, #cbd5e1);
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.wf-progress-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px dashed rgba(255, 255, 255, 0.25);
+  font-size: 11px;
+  color: #38bdf8;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.wf-progress-btn:hover {
+  background: rgba(56, 189, 248, 0.16);
+  border-color: rgba(56, 189, 248, 0.5);
+  color: #7dd3fc;
+  transform: translateY(-1px);
+}
+
+/* Quick Actions */
+.wf-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.wf-action-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 11px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px dashed rgba(255, 255, 255, 0.22);
+  font-size: 11px;
+  font-weight: 500;
+  color: #e2e8f0;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.wf-action-pill:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.45);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+.wf-action-pill:active {
+  transform: translateY(0);
+}
+
 /* ── Phase 3: Current Task Pill & 25-Minute Focus Session Bar ─────────────── */
 
 .phase3-bar {
