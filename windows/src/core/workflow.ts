@@ -33,6 +33,7 @@ export type AppType =
 export interface WorkflowNotification {
   message: string;
   detail?: string;
+  agentId?: string;
 }
 
 export interface WorkflowSettings {
@@ -561,9 +562,11 @@ class WorkflowEngine {
       (evt) => {
         if (!evt) return;
         const agName = evt.agent === "konsole" ? "Konsole" : "Terminal";
+        const agentId = evt.agent === "konsole" ? "agent_konsole" : "agent_terminal";
         this.showNotification({
           message: `💻 ${agName}: '${evt.cmd}' finished (${evt.duration.toFixed(1)}s, exit ${evt.exit_code})`,
           detail: `Click to jump to ${agName}`,
+          agentId,
         });
       },
     );

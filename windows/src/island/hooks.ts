@@ -431,7 +431,7 @@ function handleHook(island: Island, payload: HookPayload) {
       // Update quote & workflow notification so Main Pill displays the message
       if (finalText) {
         State.lastWorkflowQuote = finalText;
-        State.workflowNotification = { message: finalText };
+        State.workflowNotification = { message: finalText, agentId };
         window.setTimeout(() => {
           if (State.workflowNotification?.message === finalText) {
             State.workflowNotification = null;

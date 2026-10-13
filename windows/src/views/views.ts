@@ -947,12 +947,19 @@ function buildOverview(actions: ViewActions): ViewHost {
           }));
         }
       } else if (note) {
-        const key = `workflow~${task?.id ?? "none"}~${note.message}~${note.detail ?? ""}`;
+        const rawAg = (note.agentId || "").replace(/^agent_/, "").toLowerCase();
+        const notifTask = note.agentId
+          ? (State.tasks.find((t) => t.id === note.agentId) ??
+             State.tasks.find((t) => t.name.toLowerCase() === rawAg) ??
+             State.desktopWindows.find((w) => rawAg ? (w.resourceClass || "").toLowerCase().includes(rawAg) : false) ??
+             task)
+          : task;
+        const key = `workflow~${(notifTask as AgentTask)?.id ?? "none"}~${note.message}~${note.detail ?? ""}`;
         if (key !== cardKey) {
           cardKey = key;
           mode = "workflow";
           clear(leftBody);
-          leftBody.append(renderWorkflowQuoteCard(task, note.message, note.detail));
+          leftBody.append(renderWorkflowQuoteCard(notifTask as AgentTask, note.message, note.detail));
         }
       } else if (task && sessionActive) {
         if (mode !== "ticker") {
@@ -2180,21 +2187,31 @@ function renderDailyGoalsCard(): HTMLElement {
 
 function renderWorkflowQuoteCard(task: AgentTask | null, message: string, detail?: string): HTMLElement {
   const color = task?.color ?? "#3b82f6";
-  const label = task ? (task.id === "integration_claude" ? "VS Code" : task.name) : "Coucou";
+  let label = task ? (task.id === "integration_claude" ? "VS Code" : task.name) : "Coucou";
+
+  const msgLow = message.toLowerCase();
+  if (msgLow.includes("konsole")) label = "Konsole";
+  else if (msgLow.includes("terminal")) label = "Terminal";
+  else if (msgLow.includes("antigravity")) label = "Antigravity";
+  else if (msgLow.includes("opencode") || msgLow.includes("vscode")) label = "OpenCode";
+
+  const isDone = msgLow.includes("finish") || msgLow.includes("done") || msgLow.includes("exit 0");
+  const isError = msgLow.includes("error") || msgLow.includes("failed") || (msgLow.includes("exit ") && !msgLow.includes("exit 0"));
+  const sub = isDone ? "Done" : isError ? "Alert" : "Focus";
+  const subColor = isDone ? "#22c55e" : isError ? "#ef4444" : "#a855f7";
+
   return h(
     "div",
     {
       class: "int-card wf-card wf-clickable",
-      title: "Click to jump to window",
+      title: `Click to jump to ${label}`,
       onclick: () => {
         if (State.activeAgentWait) {
           void Workflow.focusAndAcknowledgeAgent();
         } else if (task) {
-          void Bridge.focusTrackerActivateWindow(
-            task.id,
-            task.windowPid ?? 0,
-            task.windowClass ?? task.name,
-          );
+          activateAgentOrTerminal(task, () => void Bridge.focusTrackerActivateWindow("", 0, label.toLowerCase()));
+        } else {
+          void Bridge.focusTrackerActivateWindow("", 0, label.toLowerCase());
         }
       },
     },
@@ -2203,7 +2220,7 @@ function renderWorkflowQuoteCard(task: AgentTask | null, message: string, detail
       { class: "int-head" },
       dot(color, 7),
       h("b", { text: label }),
-      h("span", { text: "Focus" }),
+      h("span", { style: `color: ${subColor}; font-weight: 600;`, text: sub }),
     ),
     h("div", { class: "wf-note-msg", text: message }),
     detail ? h("div", { class: "wf-note-detail", text: detail }) : null,
@@ -2626,49 +2643,72 @@ function buildQuickActionsRow(task: AgentTask, actions?: ViewActions): HTMLEleme
   const actionsRow = h("div", { class: "wf-actions-row" });
   const nameLow = task.name.toLowerCase();
 
-  const makePill = (icon: string, text: string, onClick: () => void) =>
+  const makePill = (icon: string, text: string, title: string, onClick: () => void) =>
     h(
       "button",
       {
         class: "wf-action-pill",
+        title,
         onclick: (e: Event) => {
           e.stopPropagation();
           onClick();
         },
       },
-      h("span", { text: icon }),
+      h("span", { class: "icon", text: icon }),
       h("span", { text }),
     );
 
+  // 1. Focus / Jump to window (works for every app!)
+  actionsRow.append(
+    makePill("🎯", "Jump", `Focus & bring ${task.name} window to front`, () => {
+      activateAgentOrTerminal(task, () => actions?.openTerminal());
+    }),
+  );
+
+  // 2. 25m Pomodoro Focus Sprint
+  actionsRow.append(
+    makePill("⏱️", "25m Focus", `Start 25-minute Pomodoro focus sprint for ${task.name}`, () => {
+      void Workflow.startFocusSession(1500);
+    }),
+  );
+
+  // 3. Daily Goals & Checklist
+  actionsRow.append(
+    makePill("📋", "Goals", "Open Daily Goals & To-Dos checklist", () => {
+      Workflow.toggleDailyGoalsCard();
+    }),
+  );
+
+  // App-specific contextual badges:
   if (nameLow.includes("antigravity")) {
     actionsRow.append(
-      makePill("📝", "Notes", () => actions?.setView("note")),
-      makePill("📁", "Files", () => void Bridge.openSession(null, ".")),
-      makePill("💬", "Brainstorm", () => actions?.setView("prompt")),
+      makePill("💬", "Prompt AI", "Open AI brainstorming & prompt assistant", () => actions?.setView("prompt")),
+      makePill("📝", "Scratchpad", "Open Quick Notes scratchpad", () => actions?.setView("note")),
+      makePill("📊", "Recap", "Open Weekly & Daily Recap", () => void Workflow.triggerMorningRecapDemo()),
     );
-  } else if (nameLow.includes("browser") || (task.windowClass || "").toLowerCase().includes("brave")) {
+  } else if (nameLow.includes("browser") || (task.windowClass || "").toLowerCase().includes("brave") || (task.windowClass || "").toLowerCase().includes("chrome")) {
     actionsRow.append(
-      makePill("🔍", "Search", () => void Bridge.openUrl("https://www.google.com")),
-      makePill("📁", "Files", () => void Bridge.openSession(null, ".")),
-      makePill("📝", "Notes", () => actions?.setView("note")),
+      makePill("🔍", "DevDocs", "Open DevDocs developer documentation", () => void Bridge.openUrl("https://devdocs.io")),
+      makePill("🐙", "GitHub", "Open GitHub in browser", () => void Bridge.openUrl("https://github.com")),
+      makePill("📝", "Notes", "Open Quick Notes scratchpad", () => actions?.setView("note")),
     );
   } else if (nameLow.includes("terminal") || nameLow.includes("konsole")) {
     actionsRow.append(
-      makePill("⚡", "Clear", () => actions?.openTerminal()),
-      makePill("📁", "Files", () => void Bridge.openSession(null, ".")),
-      makePill("📜", "History", () => actions?.setView("prompt")),
+      makePill("⚡", "New Shell", "Launch a fresh terminal session", () => actions?.openTerminal()),
+      makePill("📝", "Notes", "Open Quick Notes scratchpad", () => actions?.setView("note")),
+      makePill("📊", "Recap", "Open Daily & Weekly Recap", () => void Workflow.triggerMorningRecapDemo()),
     );
-  } else if (nameLow.includes("code") || task.id.includes("claude")) {
+  } else if (nameLow.includes("code") || task.id.includes("claude") || nameLow.includes("opencode")) {
     actionsRow.append(
-      makePill("📝", "Notes", () => actions?.setView("note")),
-      makePill("📁", "Files", () => void Bridge.openInVSCode(".")),
-      makePill("⚡", "Terminal", () => actions?.openTerminal()),
+      makePill("⚡", "Terminal", "Open terminal for this workspace", () => actions?.openTerminal()),
+      makePill("📁", "Project", "Open workspace in VS Code", () => void Bridge.openInVSCode(task.sessionCwd || ".")),
+      makePill("📝", "Notes", "Open Quick Notes scratchpad", () => actions?.setView("note")),
     );
   } else {
     actionsRow.append(
-      makePill("📝", "Notes", () => actions?.setView("note")),
-      makePill("📁", "Files", () => void Bridge.openSession(null, ".")),
-      makePill("💬", "Brainstorm", () => actions?.setView("prompt")),
+      makePill("📝", "Notes", "Open Quick Notes scratchpad", () => actions?.setView("note")),
+      makePill("💬", "Prompt AI", "Open AI prompt assistant", () => actions?.setView("prompt")),
+      makePill("📊", "Recap", "Open Daily & Weekly Recap", () => void Workflow.triggerMorningRecapDemo()),
     );
   }
 
