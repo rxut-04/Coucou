@@ -3276,15 +3276,140 @@ function buildConfused(): ViewHost {
   return { el: h("div", { class: "view" }, card("pink", body)), sync() {} };
 }
 
-// ── Note ──────────────────────────────────────────────────────────────────────
+// ── Note / Quick Scratchpad ───────────────────────────────────────────────────
 
-function buildNote(): ViewHost {
-  const title = h("div", { class: "title" });
-  const el = h("div", { class: "view" }, card(null, h("div", { class: "stack", style: "padding:0 18px 0 98px" }, title)));
+function buildNote(actions: ViewActions): ViewHost {
+  let savedNotes = "";
+  try {
+    savedNotes = localStorage.getItem("coucou_scratchpad") ?? "";
+  } catch {}
+
+  const header = h("div", { class: "note-header" });
+  const titleGroup = h(
+    "div",
+    { class: "note-title-group" },
+    h("span", { class: "note-icon", text: "📝" }),
+    h("span", { class: "note-title", text: "Quick Scratchpad" }),
+    h("span", { class: "note-save-status", text: "● Auto-saved" }),
+  );
+
+  const copyBtn = h(
+    "button",
+    {
+      class: "note-btn note-copy-btn",
+      title: "Copy all notes to clipboard",
+      onclick: async (e: Event) => {
+        e.stopPropagation();
+        try {
+          await navigator.clipboard.writeText(textarea.value);
+          const orig = copyBtn.textContent;
+          copyBtn.textContent = "✓ Copied!";
+          setTimeout(() => { copyBtn.textContent = orig; }, 1500);
+        } catch {
+          copyBtn.textContent = "Failed";
+        }
+      },
+    },
+    h("span", { text: "📋 Copy" }),
+  );
+
+  const clearBtn = h(
+    "button",
+    {
+      class: "note-btn note-clear-btn",
+      title: "Clear scratchpad",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        if (textarea.value.trim() && confirm("Clear all notes in scratchpad?")) {
+          textarea.value = "";
+          try { localStorage.removeItem("coucou_scratchpad"); } catch {}
+          updateCounts();
+        }
+      },
+    },
+    h("span", { text: "🗑️ Clear" }),
+  );
+
+  const closeBtn = h(
+    "button",
+    {
+      class: "note-btn note-close-btn",
+      title: "Close scratchpad and return to overview (Esc)",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        void Bridge.focusWindow(false);
+        actions.setView("overview");
+      },
+    },
+    h("span", { text: "✕ Done" }),
+  );
+
+  const btnGroup = h("div", { class: "note-btn-group" }, copyBtn, clearBtn, closeBtn);
+  header.append(titleGroup, btnGroup);
+
+  const textarea = h("textarea", {
+    class: "note-textarea",
+    placeholder: "Type quick thoughts, code snippets, bash commands, or notes here... (auto-saved)",
+    value: savedNotes,
+  }) as HTMLTextAreaElement;
+
+  const countSpan = h("div", { class: "note-counter", text: "0 chars · 0 lines" });
+  const tipSpan = h("div", { class: "note-tip", text: "Auto-saved locally · Press Esc or ✕ Done to exit" });
+  const footer = h("div", { class: "note-footer" }, tipSpan, countSpan);
+
+  const updateCounts = () => {
+    const text = textarea.value;
+    const lines = text ? text.split("\n").length : 0;
+    countSpan.textContent = `${text.length} chars · ${lines} line${lines === 1 ? "" : "s"}`;
+  };
+  updateCounts();
+
+  textarea.addEventListener("pointerdown", () => {
+    void Bridge.focusWindow(true);
+  });
+  textarea.addEventListener("focus", () => {
+    void Bridge.focusWindow(true);
+  });
+  textarea.addEventListener("blur", () => {
+    void Bridge.focusWindow(false);
+  });
+  textarea.addEventListener("input", () => {
+    try {
+      localStorage.setItem("coucou_scratchpad", textarea.value);
+    } catch {}
+    updateCounts();
+  });
+  textarea.addEventListener("keydown", (e: KeyboardEvent) => {
+    e.stopPropagation();
+    if (e.key === "Escape") {
+      e.preventDefault();
+      textarea.blur();
+      void Bridge.focusWindow(false);
+      actions.setView("overview");
+    }
+  });
+
+  const errBanner = h("div", { class: "note-error-banner", style: "display:none" });
+
+  const body = h("div", { class: "note-container" }, errBanner, header, textarea, footer);
+  const el = h("div", { class: "view note-view" }, card(null, body));
+
   return {
     el,
     sync() {
-      title.textContent = State.noteMessage ?? "";
+      if (State.noteMessage) {
+        errBanner.style.display = "block";
+        errBanner.textContent = `⚠️ ${State.noteMessage}`;
+      } else {
+        errBanner.style.display = "none";
+      }
+      try {
+        const stored = localStorage.getItem("coucou_scratchpad");
+        if (stored !== null && document.activeElement !== textarea) {
+          textarea.value = stored;
+          updateCounts();
+        }
+      } catch {}
     },
   };
 }
@@ -3395,7 +3520,7 @@ export function buildViews(
   map.set("error", buildError(actions));
   map.set("finished", buildFinished(actions));
   map.set("confused", buildConfused());
-  map.set("note", buildNote());
+  map.set("note", buildNote(actions));
   map.set("settings", buildSettings(actions));
   map.set("prompt", buildPrompt(onChatHeightChange));
   map.set("upload", buildUpload(actions));

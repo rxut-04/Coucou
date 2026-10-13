@@ -4578,3 +4578,150 @@ html[data-dir="rtl"] #views :is(.bubble, .reply .md-p, .reply .md-h, .reply .md-
   color: #fff;
   background: rgba(255, 255, 255, 0.08);
 }
+
+/* ── Interactive Scratchpad View ─────────────────────────────────────────── */
+.note-view .card {
+  height: 100%;
+}
+
+.note-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 10px 18px 10px 108px;
+  gap: 7px;
+  box-sizing: border-box;
+}
+
+.note-error-banner {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  margin-bottom: 2px;
+}
+
+.note-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 26px;
+}
+
+.note-title-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.note-icon {
+  font-size: 14px;
+}
+
+.note-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #f8fafc;
+  letter-spacing: -0.2px;
+}
+
+.note-save-status {
+  font-size: 10px;
+  color: #22c55e;
+  opacity: 0.85;
+  margin-left: 6px;
+  font-weight: 500;
+}
+
+.note-btn-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.note-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  font-family: var(--font);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: #e2e8f0;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.note-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.35);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+.note-close-btn {
+  background: rgba(168, 85, 247, 0.2);
+  border-color: rgba(168, 85, 247, 0.5);
+  color: #e9d5ff;
+}
+
+.note-close-btn:hover {
+  background: rgba(168, 85, 247, 0.35);
+  border-color: rgba(168, 85, 247, 0.8);
+  color: #fff;
+}
+
+.note-textarea {
+  flex: 1;
+  min-height: 84px;
+  max-height: 98px;
+  background: rgba(0, 0, 0, 0.38);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  padding: 8px 11px;
+  font-size: 11.5px;
+  font-family: var(--font-mono, monospace);
+  color: #f1f5f9;
+  line-height: 1.45;
+  resize: none;
+  outline: none;
+  transition: all 0.15s ease;
+  box-sizing: border-box;
+}
+
+.note-textarea:focus {
+  background: rgba(0, 0, 0, 0.52);
+  border-color: rgba(168, 85, 247, 0.7);
+  box-shadow: 0 0 12px rgba(168, 85, 247, 0.28);
+}
+
+.note-textarea::placeholder {
+  color: rgba(255, 255, 255, 0.32);
+}
+
+.note-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 14px;
+}
+
+.note-tip {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.note-counter {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.45);
+  text-align: right;
+  line-height: 1;
+}
