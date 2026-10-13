@@ -411,6 +411,7 @@ function handleHook(island: Island, payload: HookPayload) {
     }
 
     case "Stop": {
+      ensurePill();
       State.updateTask(agentId, "finished");
       // Claude Code puts the turn's answer in the Stop payload itself, so there is
       // no transcript to read (the relay does not even forward its path). Other
@@ -445,17 +446,10 @@ function handleHook(island: Island, payload: HookPayload) {
             island.setView(State.defaultView());
             State.isPinned = false;
             island.fsm.pinned = false;
-            if (State.mode === "expanded") {
-              island.fsm.mouseLeft();
-            }
+            island.collapse();
           }
-          if (isExternalAgent) {
-            State.updateTask(agentId, "idle");
-            State.setPillBadge(agentId, null);
-          } else {
-            State.updateTask(agentId, "idle");
-            State.setPillBadge(agentId, null);
-          }
+          State.updateTask(agentId, "idle");
+          State.setPillBadge(agentId, null);
         }, 8000),
       );
       break;

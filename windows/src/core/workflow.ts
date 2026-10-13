@@ -555,6 +555,18 @@ class WorkflowEngine {
         });
       }
     });
+
+    await onEvent<{ agent?: string; cmd: string; duration: number; exit_code: number }>(
+      "terminal-finished",
+      (evt) => {
+        if (!evt) return;
+        const agName = evt.agent === "konsole" ? "Konsole" : "Terminal";
+        this.showNotification({
+          message: `💻 ${agName}: '${evt.cmd}' finished (${evt.duration.toFixed(1)}s, exit ${evt.exit_code})`,
+          detail: `Click to jump to ${agName}`,
+        });
+      },
+    );
   }
 
   async focusAndAcknowledgeAgent(target?: AgentLiveStatus | null) {

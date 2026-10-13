@@ -9,12 +9,16 @@ __coucou_report() {
     case "$cmd" in
         vim|vi|nvim|nano|emacs|less|more|man|top|htop|btop|tmux|screen|ssh|mosh) return ;;
     esac
-    [ "$duration" -lt "${COUCOU_TERMINAL_MIN_DURATION:-10}" ] && return
+    [ "$duration" -lt "${COUCOU_TERMINAL_MIN_DURATION:-2}" ] && return
     # The command name only — never the arguments, which hold paths and prompts.
     local name="${cmd%% *}"
-    printf '{"hook_event_name":"SessionEnd","session_id":"terminal","cmd":"%s","message":"Command finished: %s took %ss (exit %s)","duration":%s,"exit_code":%s}\n' \
-        "$name" "$name" "$duration" "$exit_code" "$duration" "$exit_code" \
-        | ~/.local/share/coucou/bin/coucou-hook --agent terminal 2>/dev/null
+    local agent="terminal"
+    if [ -n "$KONSOLE_VERSION" ] || [ -n "$KONSOLE_DBUS_SERVICE" ]; then
+        agent="konsole"
+    fi
+    printf '{"hook_event_name":"SessionEnd","session_id":"%s","coucou_agent":"%s","cmd":"%s","message":"Command finished: %s took %ss (exit %s)","duration":%s,"exit_code":%s}\n' \
+        "$agent" "$agent" "$name" "$name" "$duration" "$exit_code" "$duration" "$exit_code" \
+        | ~/.local/share/coucou/bin/coucou-hook --agent "$agent" 2>/dev/null
 }
 
 if [ -n "$ZSH_VERSION" ]; then

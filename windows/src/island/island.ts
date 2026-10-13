@@ -358,7 +358,19 @@ export class Island {
           integration_calcom: "https://app.cal.com/bookings",
         };
         if (task.id === CLAUDE_DESKTOP_ID) void Bridge.openClaudeDesktop();
-        else if (task.id === "integration_claude" || task.sessionId) {
+        else if (task.id === "agent_antigravity" || task.name.toLowerCase().includes("antigravity")) {
+          Sound.play("blip");
+          void Bridge.focusTrackerActivateWindow("", 0, "antigravity");
+        } else if (task.id === "agent_opencode" || task.name.toLowerCase().includes("opencode")) {
+          Sound.play("blip");
+          void Bridge.focusTrackerActivateWindow("", 0, "code");
+        } else if (task.id === "agent_konsole" || task.name.toLowerCase().includes("konsole")) {
+          Sound.play("blip");
+          void Bridge.focusTrackerActivateWindow("", 0, "konsole");
+        } else if (task.id === "agent_terminal" || task.name.toLowerCase().includes("terminal")) {
+          Sound.play("blip");
+          void Bridge.focusTrackerActivateWindow("", 0, "terminal");
+        } else if (task.id === "integration_claude" || task.sessionId) {
           void Bridge.openSession(task.sessionId ?? null, task.sessionCwd ?? null);
         } else if (task.id === "integration_n8n") void Bridge.openN8n();
         else if (urls[task.id]) void Bridge.openUrl(urls[task.id]);

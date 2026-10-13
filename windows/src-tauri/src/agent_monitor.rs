@@ -1233,6 +1233,15 @@ pub fn spawn_agent_monitor(app: AppHandle, state: Arc<AgentMonitorState>) {
                 db_ref,
             ) {
                 let _ = app.emit("agent-wait-event", &evt);
+                if evt.state == "done" {
+                    let stop_payload = json!({
+                        "hook_event_name": "Stop",
+                        "session_id": "kiro",
+                        "coucou_agent": "kiro",
+                        "message": if evt.detail.is_empty() { "Turn completed in Kiro" } else { &evt.detail },
+                    });
+                    let _ = app.emit_to(crate::island::WINDOW_LABEL, "hook", stop_payload);
+                }
             }
 
             // 3. OpenCode
@@ -1263,6 +1272,15 @@ pub fn spawn_agent_monitor(app: AppHandle, state: Arc<AgentMonitorState>) {
                 db_ref,
             ) {
                 let _ = app.emit("agent-wait-event", &evt);
+                if evt.state == "done" {
+                    let stop_payload = json!({
+                        "hook_event_name": "Stop",
+                        "session_id": "opencode",
+                        "coucou_agent": "opencode",
+                        "message": if evt.detail.is_empty() { "Turn completed in OpenCode" } else { &evt.detail },
+                    });
+                    let _ = app.emit_to(crate::island::WINDOW_LABEL, "hook", stop_payload);
+                }
             }
 
             // 4. Interactive Input / Option Selection Detector (Antigravity + Terminal / Konsole / VS Code / OpenCode PTY)

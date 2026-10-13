@@ -551,11 +551,7 @@ export function buildHeader(actions: ViewActions): ViewHost {
     const weekly = State.weeklyAgentWaitStats;
     const weeklySummary = `Weekly agent wait: ${formatDurationCompact(weekly.totalWaitSecs)} (${weekly.totalSessions} runs)`;
     if (isStressMany && (!ag || ag.state === "idle")) {
-      agentWaitPill.style.display = "";
-      agentWaitPill.classList.remove("working");
-      agentWaitPill.classList.add("done");
-      agentWaitLabel.textContent = "🤖 Antigravity done, review it ↗";
-      agentWaitPill.title = "Stress-test badge: Antigravity done, review it";
+      agentWaitPill.style.display = "none";
     } else if (!ag || ag.state === "idle") {
       agentWaitPill.style.display = "none";
     } else if (ag.state === "working") {
@@ -565,11 +561,8 @@ export function buildHeader(actions: ViewActions): ViewHost {
       agentWaitLabel.textContent = `🤖 ${ag.displayName} working · ${formatMmSs(ag.elapsedSecs)}`;
       agentWaitPill.title = `${ag.detail || "Agent working"} — Click to focus ${ag.displayName} (${weeklySummary})`;
     } else if (ag.state === "done") {
-      agentWaitPill.style.display = "";
-      agentWaitPill.classList.remove("working");
-      agentWaitPill.classList.add("done");
-      agentWaitLabel.textContent = `🤖 ${ag.displayName} done, review it ↗`;
-      agentWaitPill.title = `Waited ${formatDurationCompact(ag.lastWaitSecs)} · Click to focus ${ag.displayName} (${weeklySummary})`;
+      // Never show done status in the header row badge — completions appear in the Main Pill
+      agentWaitPill.style.display = "none";
     }
 
     const bSession = State.browserSession;
@@ -870,6 +863,16 @@ function buildOverview(actions: ViewActions): ViewHost {
           mode = "plan";
         }
         plan.sync();
+      } else if (task && task.state === "finished") {
+        const key = `finished~${task.id}~${task.finalLine ?? ""}`;
+        if (key !== cardKey || mode !== "card") {
+          cardKey = key;
+          mode = "card";
+          clear(leftBody);
+          leftBody.append(renderAgentFinishedCard(task, () => {
+            activateAgentOrTerminal(task, () => actions.openTerminal());
+          }));
+        }
       } else if (State.showingWeatherCard) {
         const wx = State.weatherStatus;
         const selIdx = State.selectedWeatherDayIdx;
@@ -2206,6 +2209,79 @@ function renderWorkflowQuoteCard(task: AgentTask | null, message: string, detail
   );
 }
 
+function activateAgentOrTerminal(task: AgentTask | null, fallbackOpenTerminal: () => void) {
+  if (!task) {
+    fallbackOpenTerminal();
+    return;
+  }
+  const id = task.id.toLowerCase();
+  const name = task.name.toLowerCase();
+  let query = "";
+  if (id.includes("antigravity") || name.includes("antigravity")) query = "antigravity";
+  else if (id.includes("opencode") || name.includes("opencode")) query = "code";
+  else if (id.includes("konsole") || name.includes("konsole")) query = "konsole";
+  else if (id.includes("terminal") || name.includes("terminal")) query = "terminal";
+  else if (id.includes("cursor") || name.includes("cursor")) query = "cursor";
+
+  if (query) {
+    const match = State.desktopWindows.find((w) =>
+      (w.resourceClass || "").toLowerCase().includes(query) ||
+      (w.caption || "").toLowerCase().includes(query)
+    );
+    if (match) {
+      void Bridge.focusTrackerActivateWindow(match.id, match.pid, match.resourceClass);
+      return;
+    }
+    void Bridge.focusTrackerActivateWindow("", 0, query);
+  } else {
+    fallbackOpenTerminal();
+  }
+}
+
+function renderAgentFinishedCard(task: AgentTask, onOpen: () => void): HTMLElement {
+  const color = task.color || "#22c55e";
+  const label = task.name || "Agent";
+  const summary = task.finalLine || "Done · Review changes";
+  return h(
+    "div",
+    {
+      class: "int-card wf-card wf-clickable",
+      title: `Click to jump to ${label}`,
+      onclick: onOpen,
+    },
+    h(
+      "div",
+      { class: "int-head" },
+      dot(color, 7),
+      h("b", { text: label }),
+      h("span", {
+        style: "margin-left: auto; font-size: 10px; font-weight: 700; background: rgba(34,197,94,0.18); color: #22c55e; padding: 2px 8px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.5px;",
+        text: "DONE",
+      }),
+    ),
+    h("div", { class: "wf-note-msg", style: "margin-top: 6px; font-size: 13px; font-weight: 500;", text: summary }),
+    h("div", { class: "actions", style: "margin-top: 10px; display: flex; gap: 8px;" },
+      h("button", {
+        class: "btn primary",
+        style: "padding: 5px 14px; font-size: 12px; font-weight: 600;",
+        onclick: (e: Event) => {
+          e.stopPropagation();
+          onOpen();
+        },
+      }, h("span", { text: `Open ${label} ↗` })),
+      h("button", {
+        class: "btn secondary",
+        style: "padding: 5px 12px; font-size: 12px;",
+        onclick: (e: Event) => {
+          e.stopPropagation();
+          State.updateTask(task.id, "idle");
+          State.notify();
+        },
+      }, h("span", { text: "OK" })),
+    ),
+  );
+}
+
 function shortenInlinePaths(input: string): string {
   // Replace quoted paths like "/run/media/.../Coucou_0.2.0_amd64.deb" with their basename
   const withoutQuotedPaths = input.replace(/"([^"]+)"|'([^']+)'/g, (full, dquote, squote) => {
@@ -2793,20 +2869,8 @@ function buildFinished(actions: ViewActions): ViewHost {
   const who = h("div");
   const title = h("div", { class: "title one-line" });
   const open = btn(tl("Open terminal"), "primary", () => {
-    const task = State.focusTask;
-    if (task) {
-      if (task.id === "agent_antigravity" || task.name.toLowerCase().includes("antigravity")) {
-        void Bridge.focusTrackerActivateWindow("", 0, "antigravity");
-      } else if (task.id === "agent_opencode" || task.name.toLowerCase().includes("opencode")) {
-        void Bridge.focusTrackerActivateWindow("", 0, "code");
-      } else if (task.id.startsWith("pty-") || task.id.includes("terminal") || task.id.includes("konsole")) {
-        void Bridge.focusTrackerActivateWindow("", 0, "konsole");
-      } else {
-        actions.openTerminal();
-      }
-    } else {
-      actions.openTerminal();
-    }
+    activateAgentOrTerminal(State.focusTask, () => actions.openTerminal());
+    actions.collapse();
   });
   const row = h("div", { class: "actions" },
     open,
@@ -2823,14 +2887,22 @@ function buildFinished(actions: ViewActions): ViewHost {
       // The final message, else the last step that is not a diff (FinishedView).
       title.textContent = task?.finalLine || (task && lastTextStep(task.steps)) || t("Session finished");
       // Choose appropriate button label based on which agent finished
+      const isAntigravity = task?.id === "agent_antigravity" || (task?.name.toLowerCase().includes("antigravity") ?? false);
+      const isOpenCode = task?.id === "agent_opencode" || (task?.name.toLowerCase().includes("opencode") ?? false);
+      const isKonsole = task?.id === "agent_konsole" || (task?.name.toLowerCase().includes("konsole") ?? false);
+      const isTerminal = task?.id === "agent_terminal" || (task?.name.toLowerCase().includes("terminal") ?? false);
       const label =
-        task?.id === "agent_antigravity"
-          ? "Open Antigravity"
-          : task?.id === "agent_opencode"
-            ? "Open OpenCode"
-            : task?.id === "agent_claude-desktop"
-              ? t("Open Claude")
-              : t("Open terminal");
+        isAntigravity
+          ? "Open Antigravity ↗"
+          : isOpenCode
+            ? "Open OpenCode ↗"
+            : isKonsole
+              ? "Open Konsole ↗"
+              : isTerminal
+                ? "Open Terminal ↗"
+                : task?.id === "agent_claude-desktop"
+                  ? t("Open Claude")
+                  : t("Open terminal");
       const span = open.firstElementChild as HTMLElement;
       if (span.textContent !== label) span.textContent = label;
     },

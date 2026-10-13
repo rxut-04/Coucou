@@ -81,12 +81,20 @@ pub fn start(app: AppHandle) {
         let app_for_terminal = app.clone();
         tauri::async_runtime::spawn(async move {
             while let Some(event) = terminal_rx.recv().await {
-                log::line(format!("TERMINAL_ENGINE cmd={} duration={} exit={}", event.cmd, event.duration_secs, event.exit_code));
+                log::line(format!("TERMINAL_ENGINE agent={} cmd={} duration={} exit={}", event.agent, event.cmd, event.duration_secs, event.exit_code));
                 let _ = app_for_terminal.emit("terminal-finished", serde_json::json!({
+                    "agent": event.agent,
                     "cmd": event.cmd,
                     "duration": event.duration_secs,
                     "exit_code": event.exit_code,
                 }));
+                let stop_payload = serde_json::json!({
+                    "hook_event_name": "Stop",
+                    "session_id": event.agent,
+                    "coucou_agent": event.agent,
+                    "message": format!("Command '{}' finished ({:.1}s, exit {})", event.cmd, event.duration_secs, event.exit_code),
+                });
+                let _ = app_for_terminal.emit_to(crate::island::WINDOW_LABEL, "hook", stop_payload);
             }
         });
         // first_pipe_instance also means we refuse to join a pipe somebody else
@@ -136,12 +144,20 @@ pub fn start(app: AppHandle) {
         let app_for_terminal = app.clone();
         tauri::async_runtime::spawn(async move {
             while let Some(event) = terminal_rx.recv().await {
-                log::line(format!("TERMINAL_ENGINE cmd={} duration={} exit={}", event.cmd, event.duration_secs, event.exit_code));
+                log::line(format!("TERMINAL_ENGINE agent={} cmd={} duration={} exit={}", event.agent, event.cmd, event.duration_secs, event.exit_code));
                 let _ = app_for_terminal.emit("terminal-finished", serde_json::json!({
+                    "agent": event.agent,
                     "cmd": event.cmd,
                     "duration": event.duration_secs,
                     "exit_code": event.exit_code,
                 }));
+                let stop_payload = serde_json::json!({
+                    "hook_event_name": "Stop",
+                    "session_id": event.agent,
+                    "coucou_agent": event.agent,
+                    "message": format!("Command '{}' finished ({:.1}s, exit {})", event.cmd, event.duration_secs, event.exit_code),
+                });
+                let _ = app_for_terminal.emit_to(crate::island::WINDOW_LABEL, "hook", stop_payload);
             }
         });
         // A socket file left behind by a crash answers nothing and can go. One
@@ -196,6 +212,7 @@ trait Relay: AsyncRead + AsyncWrite + Unpin {
 /// A finished terminal command, forwarded to the engine channel.
 #[derive(Debug, Clone)]
 pub struct TerminalFinished {
+    pub agent: String,
     pub cmd: String,
     pub duration_secs: f64,
     pub exit_code: i32,
@@ -259,16 +276,21 @@ async fn handle(app: AppHandle, mut pipe: impl Relay) {
         return;
     }
 
-    // Intercept terminal SessionEnd events: send to the engine channel instead of
-    // the island (which would only remove a phantom task pill).
-    if event == "SessionEnd" && payload.get("coucou_agent").and_then(Value::as_str) == Some("terminal") {
+    // Intercept terminal / konsole SessionEnd events: send to the engine channel
+    let agent_name = payload.get("coucou_agent").and_then(Value::as_str).unwrap_or("");
+    if event == "SessionEnd" && (agent_name == "terminal" || agent_name == "konsole") {
         let cmd = payload.get("cmd").and_then(Value::as_str).unwrap_or("command").to_string();
         let duration_secs = payload.get("duration").and_then(Value::as_f64).unwrap_or(0.0);
         let exit_code = payload.get("exit_code").and_then(Value::as_i64).unwrap_or(0) as i32;
-        let finished = TerminalFinished { cmd: cmd.clone(), duration_secs, exit_code };
+        let finished = TerminalFinished {
+            agent: agent_name.to_string(),
+            cmd: cmd.clone(),
+            duration_secs,
+            exit_code,
+        };
         let tx = app.state::<TerminalSender>().clone();
         let _ = tx.send(finished.clone());
-        log::line(format!("TERMINAL_EVENT cmd={} duration={} exit={}", cmd, duration_secs, exit_code));
+        log::line(format!("TERMINAL_EVENT agent={} cmd={} duration={} exit={}", agent_name, cmd, duration_secs, exit_code));
         pipe.finish();
         return;
     }
