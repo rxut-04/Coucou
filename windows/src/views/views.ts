@@ -2420,80 +2420,122 @@ function getDefaultSessionQuote(name: string): string {
 function buildObjectiveRow(task: AgentTask): HTMLElement {
   const currentObj = State.getSessionObjective(task.name);
   const row = h("div", { class: "wf-session-row" });
+
+  const isAntigravity = task.name.toLowerCase().includes("antigravity");
+  const isBrowser = task.name.toLowerCase().includes("browser") || (task.windowClass || "").toLowerCase().includes("brave");
+  const isTerminal = task.name.toLowerCase().includes("terminal") || task.name.toLowerCase().includes("konsole");
+  const isCode = task.name.toLowerCase().includes("code");
+  const placeholder = isAntigravity
+    ? "Type your goal for this session... (e.g., Fix gravity physics)"
+    : isBrowser
+      ? "What are you researching? (e.g., Deep dive React docs)"
+      : isTerminal
+        ? "Target command / goal... (e.g., Run test suite)"
+        : isCode
+          ? "Feature or bugfix goal... (e.g., Refactor auth router)"
+          : "Type your goal for this session...";
+
+  const input = h("input", {
+    type: "text",
+    class: "wf-objective-input" + (currentObj ? " has-value" : ""),
+    placeholder,
+    value: currentObj,
+  }) as HTMLInputElement;
+
+  const focusInput = () => {
+    void Bridge.focusWindow(true);
+    input.focus();
+    input.select();
+  };
+
+  input.addEventListener("pointerdown", (e: Event) => {
+    e.stopPropagation();
+    void Bridge.focusWindow(true);
+  });
+  input.addEventListener("focus", (e: Event) => {
+    e.stopPropagation();
+    void Bridge.focusWindow(true);
+  });
+  input.addEventListener("blur", () => {
+    void Bridge.focusWindow(false);
+  });
+
+  const saveGoal = () => {
+    const val = input.value.trim();
+    void Bridge.focusWindow(false);
+    State.setSessionObjective(task.name, val);
+  };
+
+  input.addEventListener("keydown", (e: KeyboardEvent) => {
+    e.stopPropagation();
+    if (e.key === "Enter") {
+      e.preventDefault();
+      saveGoal();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      input.value = State.getSessionObjective(task.name);
+      input.blur();
+      void Bridge.focusWindow(false);
+    }
+  });
+
   const label = h(
     "div",
-    { class: "wf-session-label" },
+    {
+      class: "wf-session-label",
+      title: "Click to set current objective",
+      style: "cursor: pointer;",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        focusInput();
+      },
+    },
     h("span", { class: "icon", text: "🎯" }),
     h("span", { text: "Current Objective" }),
   );
   row.append(label);
 
   const box = h("div", { class: "wf-objective-box" });
-  if (currentObj) {
-    const disp = h(
-      "div",
-      { class: "wf-objective-display", title: "Click ✕ to change goal" },
-      h("span", { class: "text", text: currentObj }),
-      h("span", {
-        class: "wf-objective-clear",
-        text: "✕",
-        title: "Clear goal",
-        onclick: (e: Event) => {
-          e.stopPropagation();
-          State.setSessionObjective(task.name, "");
-        },
-      }),
-    );
-    box.append(disp);
-  } else {
-    const isAntigravity = task.name.toLowerCase().includes("antigravity");
-    const isBrowser = task.name.toLowerCase().includes("browser") || (task.windowClass || "").toLowerCase().includes("brave");
-    const isTerminal = task.name.toLowerCase().includes("terminal") || task.name.toLowerCase().includes("konsole");
-    const isCode = task.name.toLowerCase().includes("code");
-    const placeholder = isAntigravity
-      ? "Type your goal for this session... (e.g., Fix gravity physics)"
-      : isBrowser
-        ? "What are you researching? (e.g., Deep dive React docs)"
-        : isTerminal
-          ? "Target command / goal... (e.g., Run test suite)"
-          : isCode
-            ? "Feature or bugfix goal... (e.g., Refactor auth router)"
-            : "Type your goal for this session...";
 
-    const input = h("input", {
-      type: "text",
-      class: "wf-objective-input",
-      placeholder,
-    }) as HTMLInputElement;
-
-    const saveGoal = () => {
-      const val = input.value.trim();
-      if (val) {
-        State.setSessionObjective(task.name, val);
-      }
-    };
-
-    input.addEventListener("keydown", (e: KeyboardEvent) => {
-      if (e.key === "Enter") {
-        saveGoal();
-      }
-    });
-
-    const addBtn = h(
-      "button",
-      {
-        class: "wf-objective-btn",
-        title: "Save objective",
-        onclick: (e: Event) => {
-          e.stopPropagation();
+  const actionBtn = h(
+    "button",
+    {
+      class: "wf-objective-btn",
+      title: currentObj ? "Clear objective" : "Set objective",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        const val = input.value.trim();
+        if (val && val !== currentObj) {
           saveGoal();
-        },
+        } else if (currentObj && (!val || val === currentObj)) {
+          input.value = "";
+          State.setSessionObjective(task.name, "");
+        } else {
+          focusInput();
+        }
       },
-      h("span", { text: "+" }),
-    );
+    },
+    h("span", { text: currentObj ? "✕" : "+" }),
+  );
 
-    box.append(input, addBtn);
-  }
+  input.addEventListener("input", () => {
+    const textSpan = actionBtn.querySelector("span");
+    const val = input.value.trim();
+    if (textSpan) {
+      if (!val) {
+        textSpan.textContent = "+";
+        actionBtn.title = "Type a goal and press + or Enter";
+      } else if (val === currentObj) {
+        textSpan.textContent = "✕";
+        actionBtn.title = "Clear objective";
+      } else {
+        textSpan.textContent = "✓";
+        actionBtn.title = "Save objective";
+      }
+    }
+  });
+
+  box.append(input, actionBtn);
   row.append(box);
   return row;
 }

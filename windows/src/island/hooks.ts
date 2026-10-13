@@ -425,16 +425,24 @@ function handleHook(island: Island, payload: HookPayload) {
       }
       Sound.play("finish");
 
-      // Set focus to the agent that just completed so the Main Pill shows its card
-      State.setFocus(agentId);
+      // Badge the agent's mini pill
+      State.setPillBadge(agentId, "finished");
 
-      // Expand the island with dropdown animation to temporarily take over the main pill
-      if (!State.pendingApproval) {
-        State.isPinned = true;
-        island.fsm.pinned = true;
-        island.alert("finished");
-      } else {
-        State.setPillBadge(agentId, "finished");
+      // Update quote & workflow notification so Main Pill displays the message
+      if (finalText) {
+        State.lastWorkflowQuote = finalText;
+        State.workflowNotification = { message: finalText };
+        window.setTimeout(() => {
+          if (State.workflowNotification?.message === finalText) {
+            State.workflowNotification = null;
+            State.notify();
+          }
+        }, 6000);
+      }
+
+      // If the island was hidden, gently reveal it in overview mode
+      if (State.mode === "hidden") {
+        island.reveal();
       }
 
       cancelStopTimer(agentId);
@@ -442,16 +450,19 @@ function handleHook(island: Island, payload: HookPayload) {
         agentId,
         window.setTimeout(() => {
           stopTimers.delete(agentId);
-          if (State.view === "finished" && State.focusId === agentId) {
-            island.setView(State.defaultView());
-            State.isPinned = false;
-            island.fsm.pinned = false;
-            island.collapse();
-          }
           State.updateTask(agentId, "idle");
           State.setPillBadge(agentId, null);
+          State.notify();
         }, 8000),
       );
+      break;
+    }
+
+    case "ApprovalDismiss": {
+      const reqId = payload.request_id;
+      if (State.pendingApproval && (!reqId || State.pendingApproval.requestId === reqId)) {
+        dropPendingCard(island);
+      }
       break;
     }
 

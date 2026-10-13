@@ -1842,6 +1842,13 @@ input[type="range"]::-webkit-slider-thumb {
   color: rgba(255, 255, 255, 0.35);
 }
 
+.wf-objective-input.has-value {
+  background: rgba(168, 85, 247, 0.12);
+  border-color: rgba(168, 85, 247, 0.55);
+  color: #fff;
+  font-weight: 500;
+}
+
 .wf-objective-btn {
   width: 26px;
   height: 26px;
