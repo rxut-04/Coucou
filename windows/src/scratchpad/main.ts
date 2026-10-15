@@ -46,6 +46,7 @@ async function init() {
   root.innerHTML = `
     <header class="studio-topbar">
       <div class="topbar-left">
+        <button class="tool-btn btn-icon-only" id="header-sidebar-btn" title="Toggle File Explorer (Ctrl+B)">☰</button>
         <div class="studio-brand">
           <span class="brand-icon">⚡</span>
           <span>Code Studio</span>
@@ -63,6 +64,9 @@ async function init() {
     </header>
 
     <div class="studio-workspace">
+      <!-- Quick uncollapse hover strip when sidebar is hidden -->
+      <div class="edge-expand-strip" id="edge-expand-strip" title="Click to show Explorer">📁</div>
+
       <!-- Collapsible & Stretchable Directory Sidebar -->
       <aside class="studio-sidebar" id="sidebar">
         <div class="sidebar-header">
@@ -481,11 +485,30 @@ async function init() {
 
   // Sidebar toggle & auto-collapse
   const toggleSidebar = () => {
-    sidebar.classList.toggle("collapsed");
+    const isCollapsed = sidebar.classList.toggle("collapsed");
+    if (!isCollapsed) {
+      // Ensure it has a visible width if it was previously dragged to near zero
+      const currentW = parseInt(sidebar.style.width || "0", 10);
+      if (currentW < 160) {
+        const targetW = 240;
+        sidebar.style.width = `${targetW}px`;
+        localStorage.setItem(SIDEBAR_WIDTH_KEY, String(targetW));
+      }
+    }
   };
 
+  document.getElementById("header-sidebar-btn")?.addEventListener("click", toggleSidebar);
+  document.getElementById("edge-expand-strip")?.addEventListener("click", toggleSidebar);
   document.getElementById("collapse-sidebar-btn")?.addEventListener("click", toggleSidebar);
   document.getElementById("toggle-sidebar-btn")?.addEventListener("click", toggleSidebar);
+
+  // Keyboard shortcut Ctrl+B / Cmd+B to toggle sidebar
+  window.addEventListener("keydown", (e: KeyboardEvent) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") {
+      e.preventDefault();
+      toggleSidebar();
+    }
+  });
 
   // ── Stretchable / Resizable Sidebar with Auto-Close ─────────────────────────
   let isResizing = false;
