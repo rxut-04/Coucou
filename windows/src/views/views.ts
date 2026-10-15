@@ -2683,30 +2683,25 @@ function buildQuickActionsRow(task: AgentTask, actions?: ViewActions): HTMLEleme
   if (nameLow.includes("antigravity")) {
     actionsRow.append(
       makePill("💬", "Prompt AI", "Open AI brainstorming & prompt assistant", () => actions?.setView("prompt")),
-      makePill("📝", "Scratchpad", "Open Quick Notes scratchpad", () => actions?.setView("note")),
       makePill("📊", "Recap", "Open Weekly & Daily Recap", () => void Workflow.triggerMorningRecapDemo()),
     );
   } else if (nameLow.includes("browser") || (task.windowClass || "").toLowerCase().includes("brave") || (task.windowClass || "").toLowerCase().includes("chrome")) {
     actionsRow.append(
       makePill("🔍", "DevDocs", "Open DevDocs developer documentation", () => void Bridge.openUrl("https://devdocs.io")),
       makePill("🐙", "GitHub", "Open GitHub in browser", () => void Bridge.openUrl("https://github.com")),
-      makePill("📝", "Notes", "Open Quick Notes scratchpad", () => actions?.setView("note")),
     );
   } else if (nameLow.includes("terminal") || nameLow.includes("konsole")) {
     actionsRow.append(
       makePill("⚡", "New Shell", "Launch a fresh terminal session", () => actions?.openTerminal()),
-      makePill("📝", "Notes", "Open Quick Notes scratchpad", () => actions?.setView("note")),
       makePill("📊", "Recap", "Open Daily & Weekly Recap", () => void Workflow.triggerMorningRecapDemo()),
     );
   } else if (nameLow.includes("code") || task.id.includes("claude") || nameLow.includes("opencode")) {
     actionsRow.append(
       makePill("⚡", "Terminal", "Open terminal for this workspace", () => actions?.openTerminal()),
       makePill("📁", "Project", "Open workspace in VS Code", () => void Bridge.openInVSCode(task.sessionCwd || ".")),
-      makePill("📝", "Notes", "Open Quick Notes scratchpad", () => actions?.setView("note")),
     );
   } else {
     actionsRow.append(
-      makePill("📝", "Notes", "Open Quick Notes scratchpad", () => actions?.setView("note")),
       makePill("💬", "Prompt AI", "Open AI prompt assistant", () => actions?.setView("prompt")),
       makePill("📊", "Recap", "Open Daily & Weekly Recap", () => void Workflow.triggerMorningRecapDemo()),
     );
@@ -2772,6 +2767,20 @@ function renderDesktopWindowCard(task: AgentTask, quoteText: string, detailText 
   const statusContainer = h("div", { class: "int-status wf-structured-status" });
   populateStructuredWindowStatus(statusContainer, statusColor, statusLabel, task.name);
 
+  const notesBadgeEl = h(
+    "button",
+    {
+      class: "wf-top-notes-badge",
+      title: "Open Quick Notes & Code Studio",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        actions?.setView("note");
+      },
+    },
+    h("span", { class: "icon", text: "📝" }),
+    h("span", { class: "label", text: "Notes" }),
+  );
+
   return h(
     "div",
     { class: "int-card wf-card" },
@@ -2792,6 +2801,7 @@ function renderDesktopWindowCard(task: AgentTask, quoteText: string, detailText 
       h("b", { text: task.name }),
       h("span", { text: isActive ? "Active" : "Idle" }),
       domainBadgeEl,
+      notesBadgeEl,
     ),
     displayQuote
       ? h("div", { class: "wf-note-msg", text: displayQuote })

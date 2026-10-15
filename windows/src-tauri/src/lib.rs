@@ -961,6 +961,259 @@ fn set_scratchpad_fullscreen(app: AppHandle, fullscreen: bool) -> Result<(), Str
     win.set_fullscreen(fullscreen).map_err(|e| e.to_string())
 }
 
+#[derive(Serialize, serde::Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct StudioChatReply {
+    pub text: String,
+    pub session_id: Option<String>,
+    pub modified_files: Vec<String>,
+    pub tool_actions: Vec<String>,
+}
+
+static STUDIO_OPENCODE_PID: Mutex<Option<u32>> = Mutex::new(None);
+
+#[tauri::command]
+fn opencode_is_available() -> bool {
+    opencode_chat::find_binary().is_some()
+}
+
+#[tauri::command]
+fn opencode_studio_abort() -> Result<(), String> {
+    if let Ok(mut lock) = STUDIO_OPENCODE_PID.lock() {
+        if let Some(pid) = lock.take() {
+            #[cfg(unix)]
+            unsafe {
+                libc::kill(pid as i32, libc::SIGKILL);
+            }
+            #[cfg(windows)]
+            {
+                let _ = std::process::Command::new("taskkill")
+                    .arg("/F")
+                    .arg("/PID")
+                    .arg(pid.to_string())
+                    .output();
+            }
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn opencode_studio_chat(
+    app: AppHandle,
+    prompt: String,
+    dir: Option<String>,
+    session_id: Option<String>,
+    active_file: Option<String>,
+) -> Result<StudioChatReply, String> {
+    use tokio::io::AsyncBufReadExt;
+
+    let exe = opencode_chat::find_binary().ok_or_else(|| {
+        "OpenCode executable not found. Make sure opencode is installed at ~/.opencode/bin/opencode.".to_string()
+    })?;
+
+    // Determine target working directory
+    let working_dir = if let Some(d) = dir.filter(|s| !s.trim().is_empty()) {
+        let p = std::path::PathBuf::from(d);
+        if p.is_dir() {
+            p
+        } else {
+            platform::config_dir().join("notes")
+        }
+    } else if let Some(f) = active_file.as_ref().filter(|s| !s.trim().is_empty()) {
+        let p = std::path::PathBuf::from(f);
+        if let Some(parent) = p.parent() {
+            parent.to_path_buf()
+        } else {
+            platform::config_dir().join("notes")
+        }
+    } else {
+        let default_notes = platform::config_dir().join("notes");
+        let _ = std::fs::create_dir_all(&default_notes);
+        default_notes
+    };
+
+    let mut cmd = tokio::process::Command::new(&exe);
+    cmd.current_dir(&working_dir);
+    cmd.arg("run");
+    cmd.arg("--auto");
+    cmd.arg("--format").arg("json");
+
+    if let Some(sid) = session_id.filter(|s| !s.trim().is_empty()) {
+        cmd.arg("-s").arg(sid);
+    }
+
+    if let Some(file_path) = active_file.as_ref().filter(|s| !s.trim().is_empty()) {
+        let p = std::path::Path::new(file_path);
+        if p.is_file() {
+            cmd.arg("-f").arg(file_path);
+        }
+    }
+
+    cmd.arg(&prompt)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("Could not spawn OpenCode: {e}"))?;
+
+    if let Some(pid) = child.id() {
+        if let Ok(mut lock) = STUDIO_OPENCODE_PID.lock() {
+            *lock = Some(pid);
+        }
+    }
+
+    let stdout = child.stdout.take().ok_or_else(|| "OpenCode stdout unavailable".to_string())?;
+    let mut lines = tokio::io::BufReader::new(stdout).lines();
+
+    let mut detected_session_id: Option<String> = None;
+    let mut modified_files: Vec<String> = Vec::new();
+    let mut tool_actions: Vec<String> = Vec::new();
+    let mut text_parts: Vec<(Option<String>, String)> = Vec::new();
+    let mut last_error: Option<String> = None;
+
+    while let Ok(Some(line)) = lines.next_line().await {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(trimmed) {
+            if let Some(sid) = val.get("sessionID").and_then(|s| s.as_str()) {
+                detected_session_id = Some(sid.to_string());
+            }
+
+            let msg_type = val.get("type").and_then(|t| t.as_str()).unwrap_or("");
+            match msg_type {
+                "text" => {
+                    let part_id = val.get("part").and_then(|p| p.get("id")).and_then(|s| s.as_str()).map(|s| s.to_string());
+                    let text = val.get("part")
+                        .and_then(|p| p.get("text"))
+                        .and_then(|s| s.as_str())
+                        .unwrap_or("")
+                        .to_string();
+
+                    if !text.is_empty() {
+                        if let Some(id) = &part_id {
+                            if let Some(existing) = text_parts.iter_mut().find(|(eid, _)| eid.as_ref() == Some(id)) {
+                                existing.1 = text.clone();
+                            } else {
+                                text_parts.push((part_id.clone(), text.clone()));
+                            }
+                        } else {
+                            text_parts.push((None, text.clone()));
+                        }
+
+                        let combined: String = text_parts
+                            .iter()
+                            .map(|(_, t)| t.as_str())
+                            .collect::<Vec<_>>()
+                            .join("\n\n");
+
+                        let _ = app.emit("studio-chat-delta", serde_json::json!({
+                            "text": combined
+                        }));
+                    }
+                }
+                "tool_use" => {
+                    if let Some(part) = val.get("part") {
+                        let tool = part.get("tool").and_then(|s| s.as_str()).unwrap_or("tool");
+                        let input = part.get("state").and_then(|s| s.get("input"));
+                        let output = part.get("state").and_then(|s| s.get("output")).and_then(|s| s.as_str()).unwrap_or("");
+
+                        let mut file_path = input
+                            .and_then(|i| i.get("path"))
+                            .and_then(|s| s.as_str())
+                            .unwrap_or("")
+                            .to_string();
+
+                        if file_path.is_empty() {
+                            file_path = input
+                                .and_then(|i| i.get("file"))
+                                .and_then(|s| s.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                        }
+
+                        let action_desc = if !output.is_empty() {
+                            output.to_string()
+                        } else if !file_path.is_empty() {
+                            format!("{tool}: {file_path}")
+                        } else {
+                            format!("Ran {tool}")
+                        };
+
+                        if (tool == "write" || tool == "edit" || tool == "append") && !file_path.is_empty() {
+                            if !modified_files.contains(&file_path) {
+                                modified_files.push(file_path.clone());
+                            }
+                        }
+
+                        tool_actions.push(action_desc.clone());
+                        let _ = app.emit("studio-chat-tool", serde_json::json!({
+                            "tool": tool,
+                            "action": action_desc,
+                            "filePath": file_path
+                        }));
+                    }
+                }
+                "error" => {
+                    if let Some(err_obj) = val.get("error") {
+                        let msg = err_obj.get("message").and_then(|s| s.as_str()).unwrap_or("Unknown error");
+                        last_error = Some(msg.to_string());
+                    }
+                }
+                _ => {}
+            }
+        } else {
+            let _ = app.emit("studio-chat-raw", trimmed);
+        }
+    }
+
+    if let Ok(mut lock) = STUDIO_OPENCODE_PID.lock() {
+        *lock = None;
+    }
+
+    let status = child
+        .wait()
+        .await
+        .map_err(|e| format!("OpenCode process wait failed: {e}"))?;
+
+    let final_text = text_parts
+        .into_iter()
+        .map(|(_, t)| t)
+        .collect::<Vec<_>>()
+        .join("\n\n")
+        .trim()
+        .to_string();
+
+    if !final_text.is_empty() || !modified_files.is_empty() || !tool_actions.is_empty() {
+        return Ok(StudioChatReply {
+            text: if final_text.is_empty() { "Operations completed successfully.".into() } else { final_text },
+            session_id: detected_session_id,
+            modified_files,
+            tool_actions,
+        });
+    }
+
+    if let Some(err) = last_error {
+        return Err(err);
+    }
+
+    if !status.success() {
+        return Err(format!("OpenCode exited with code {:?}", status.code()));
+    }
+
+    Ok(StudioChatReply {
+        text: "Completed.".into(),
+        session_id: detected_session_id,
+        modified_files,
+        tool_actions,
+    })
+}
+
 pub fn run() {
     if db::handle_cli_args() {
         return;
@@ -1063,6 +1316,9 @@ pub fn run() {
             pick_folder_dialog,
             pick_file_dialog,
             set_scratchpad_fullscreen,
+            opencode_is_available,
+            opencode_studio_chat,
+            opencode_studio_abort,
             set_paused,
             shortcuts_status,
             shortcuts_suspend,

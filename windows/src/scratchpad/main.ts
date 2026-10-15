@@ -19,6 +19,15 @@ interface DirListing {
 const STORAGE_KEY = "coucou_scratchpad";
 const THEME_KEY = "coucou_scratchpad_theme";
 const SIDEBAR_WIDTH_KEY = "coucou_scratchpad_sidebar_w";
+const CHAT_WIDTH_KEY = "coucou_scratchpad_chat_w";
+const CHAT_COLLAPSED_KEY = "coucou_scratchpad_chat_collapsed";
+
+interface StudioChatReply {
+  text: string;
+  sessionId: string | null;
+  modifiedFiles: string[];
+  toolActions: string[];
+}
 
 let currentFilePath: string | null = null;
 let currentFileExt: string = "txt";
@@ -55,6 +64,7 @@ async function init() {
         <span class="save-pill" id="save-pill">● Synced</span>
       </div>
       <div class="topbar-right">
+        <button class="tool-btn" id="header-chat-btn" title="Toggle OpenCode AI Chat (Ctrl+J)"><span class="icon">🤖</span><span>AI Chat</span></button>
         <button class="tool-btn" id="open-folder-btn" title="Open Directory on Local Computer">📂 Open Folder</button>
         <button class="tool-btn" id="open-file-btn" title="Open Existing File">📄 Open File</button>
         <button class="tool-btn btn-accent" id="save-file-btn" title="Save File (Ctrl+S)">💾 Save</button>
@@ -102,6 +112,70 @@ async function init() {
           </div>
         </div>
       </main>
+
+      <!-- Collapsible & Stretchable OpenCode Chat Panel -->
+      <aside class="studio-chat-panel" id="chat-panel">
+        <div class="chat-resizer" id="chat-resizer"></div>
+        <div class="chat-header">
+          <div class="chat-header-title">
+            <span class="chat-bot-icon">🤖</span>
+            <div class="chat-title-group">
+              <span class="chat-main-title">OpenCode Assistant</span>
+              <span class="chat-subtitle" id="chat-status-sub">Ready · Free to edit & create files</span>
+            </div>
+          </div>
+          <div class="chat-header-actions">
+            <button class="icon-btn" id="new-chat-btn" title="New Session (Reset Conversation)">🔄</button>
+            <button class="icon-btn" id="collapse-chat-btn" title="Collapse Chat Panel (Ctrl+J)">✕</button>
+          </div>
+        </div>
+
+        <div class="chat-context-bar" id="chat-context-bar">
+          <div class="chat-context-tag" id="chat-context-tag" title="Target Context for OpenCode">
+            <span class="context-icon">📄</span>
+            <span class="context-label" id="chat-context-label">scratchpad.txt</span>
+          </div>
+          <div class="chat-quick-chips">
+            <button class="quick-chip" data-prompt="Explain what this code does in detail">💡 Explain</button>
+            <button class="quick-chip" data-prompt="Review this code for bugs, improvements, and best practices">🔍 Review</button>
+            <button class="quick-chip" data-prompt="Add comments and documentation to this code">📝 Doc</button>
+          </div>
+        </div>
+
+        <div class="chat-messages" id="chat-messages">
+          <div class="chat-welcome-card" id="chat-welcome">
+            <div class="welcome-icon">⚡</div>
+            <div class="welcome-title">OpenCode AI Assistant</div>
+            <div class="welcome-desc">
+              Chat with your files, or tell OpenCode to create, edit, and append files freely in your workspace.
+            </div>
+            <div class="welcome-examples">
+              <div class="example-item" data-prompt="Create a file index.html with a modern responsive starter template">"Create a file index.html with modern starter template"</div>
+              <div class="example-item" data-prompt="Explain the logic in the active file step by step">"Explain the logic in this file step by step"</div>
+              <div class="example-item" data-prompt="Refactor the code in this file to make it cleaner">"Refactor this code to make it cleaner"</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="chat-input-container">
+          <div class="chat-input-wrapper">
+            <textarea
+              class="chat-textarea"
+              id="chat-input"
+              placeholder="Ask OpenCode, or tell it to create/edit files... (Enter to send)"
+              rows="1"
+            ></textarea>
+            <div class="chat-input-actions">
+              <span class="chat-input-hint">Shift+Enter for newline</span>
+              <button class="chat-send-btn" id="chat-send-btn" title="Send (Enter)">➤</button>
+              <button class="chat-stop-btn" id="chat-stop-btn" title="Stop generating" style="display: none;">⏹ Stop</button>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Quick Expand Strip on Right Edge when Chat is Collapsed -->
+      <div class="edge-chat-strip" id="edge-chat-strip" title="Click to open OpenCode AI Chat">🤖</div>
     </div>
 
     <footer class="studio-statusbar">
@@ -135,10 +209,36 @@ async function init() {
   const fileInfoStatus = document.getElementById("file-info-status") as HTMLElement;
   const filePathStatus = document.getElementById("file-path-status") as HTMLElement;
 
+  // Chat Element Handles
+  const chatPanel = document.getElementById("chat-panel") as HTMLElement;
+  const chatResizer = document.getElementById("chat-resizer") as HTMLElement;
+  const headerChatBtn = document.getElementById("header-chat-btn") as HTMLElement;
+  const collapseChatBtn = document.getElementById("collapse-chat-btn") as HTMLElement;
+  const edgeChatStrip = document.getElementById("edge-chat-strip") as HTMLElement;
+  const chatMessages = document.getElementById("chat-messages") as HTMLElement;
+  const chatWelcome = document.getElementById("chat-welcome") as HTMLElement;
+  const chatInput = document.getElementById("chat-input") as HTMLTextAreaElement;
+  const chatSendBtn = document.getElementById("chat-send-btn") as HTMLElement;
+  const chatStopBtn = document.getElementById("chat-stop-btn") as HTMLElement;
+  const chatContextTag = document.getElementById("chat-context-tag") as HTMLElement;
+  const chatContextLabel = document.getElementById("chat-context-label") as HTMLElement;
+  const chatStatusSub = document.getElementById("chat-status-sub") as HTMLElement;
+  const newChatBtn = document.getElementById("new-chat-btn") as HTMLElement;
+
   // Restore saved sidebar width
   const savedWidth = localStorage.getItem(SIDEBAR_WIDTH_KEY);
   if (savedWidth) {
     sidebar.style.width = `${savedWidth}px`;
+  }
+
+  // Restore saved chat width & collapsed state
+  const savedChatWidth = localStorage.getItem(CHAT_WIDTH_KEY);
+  if (savedChatWidth) {
+    chatPanel.style.width = `${savedChatWidth}px`;
+  }
+  const isChatCollapsed = localStorage.getItem(CHAT_COLLAPSED_KEY) === "true";
+  if (isChatCollapsed) {
+    chatPanel.classList.add("collapsed");
   }
 
   // ── Sync & Render Highlighting ──────────────────────────────────────────────
@@ -368,6 +468,7 @@ async function init() {
       filePathStatus.textContent = path;
 
       updateHighlight();
+      updateChatContext(name, path);
       if (currentDir) void loadDirectory(currentDir);
     } catch (err) {
       alert("Error reading file: " + err);
@@ -392,6 +493,7 @@ async function init() {
     filePathStatus.textContent = "Default Scratchpad";
 
     updateHighlight();
+    updateChatContext("scratchpad.txt", null);
     if (currentDir) void loadDirectory(currentDir);
   }
 
@@ -540,6 +642,287 @@ async function init() {
       sidebarResizer.classList.remove("dragging");
       document.body.style.cursor = "";
     }
+  });
+
+  // ── OpenCode Integrated Chat Panel Logic ────────────────────────────────────
+  function escapeHtml(str: string): string {
+    return str
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  function formatChatMarkdown(text: string): string {
+    if (!text) return "";
+    let out = text.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (_m, lang, code) => {
+      return `<pre><code>${highlightCode(code.trim(), lang || "txt")}</code></pre>`;
+    });
+    out = out.replace(/`([^`\n]+)`/g, (_m, code) => {
+      return `<code>${escapeHtml(code)}</code>`;
+    });
+    out = out.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
+    out = out.replace(/(?:^|\n)[*-]\s+(.+)/g, "<br/>• $1");
+    out = out.replace(/\n{2,}/g, "<br/><br/>").replace(/\n/g, "<br/>");
+    return out;
+  }
+
+  let opencodeSessionId: string | null = null;
+  let isGenerating = false;
+  let activeAssistantBubble: HTMLElement | null = null;
+  let activeToolContainer: HTMLElement | null = null;
+
+  function updateChatContext(name: string, path: string | null) {
+    if (chatContextLabel) chatContextLabel.textContent = name;
+    if (chatContextTag) {
+      chatContextTag.title = path ? `Context: ${path}` : "Context: Default Scratchpad";
+    }
+  }
+
+  const toggleChat = (force?: boolean) => {
+    const isCurrentlyCollapsed = chatPanel.classList.contains("collapsed");
+    const willCollapse = force !== undefined ? !force : !isCurrentlyCollapsed;
+    chatPanel.classList.toggle("collapsed", willCollapse);
+    localStorage.setItem(CHAT_COLLAPSED_KEY, String(willCollapse));
+
+    if (!willCollapse) {
+      const currentW = parseInt(chatPanel.style.width || "0", 10);
+      if (currentW < 220) {
+        const targetW = 380;
+        chatPanel.style.width = `${targetW}px`;
+        localStorage.setItem(CHAT_WIDTH_KEY, String(targetW));
+      }
+      chatInput.focus();
+    }
+  };
+
+  headerChatBtn?.addEventListener("click", () => toggleChat());
+  collapseChatBtn?.addEventListener("click", () => toggleChat(false));
+  edgeChatStrip?.addEventListener("click", () => toggleChat(true));
+
+  // Stretchable & Auto-collapsible Chat Resizer
+  let isChatResizing = false;
+  chatResizer.addEventListener("mousedown", (e) => {
+    isChatResizing = true;
+    chatResizer.classList.add("dragging");
+    document.body.style.cursor = "col-resize";
+    e.preventDefault();
+  });
+
+  window.addEventListener("mousemove", (e) => {
+    if (!isChatResizing) return;
+    const newWidth = window.innerWidth - e.clientX;
+
+    // Auto-close if dragged below 120px
+    if (newWidth < 120) {
+      chatPanel.classList.add("collapsed");
+      localStorage.setItem(CHAT_COLLAPSED_KEY, "true");
+    } else {
+      chatPanel.classList.remove("collapsed");
+      localStorage.setItem(CHAT_COLLAPSED_KEY, "false");
+      const clamped = Math.min(Math.max(newWidth, 240), 750);
+      chatPanel.style.width = `${clamped}px`;
+      localStorage.setItem(CHAT_WIDTH_KEY, String(clamped));
+    }
+  });
+
+  window.addEventListener("mouseup", () => {
+    if (isChatResizing) {
+      isChatResizing = false;
+      chatResizer.classList.remove("dragging");
+      document.body.style.cursor = "";
+    }
+  });
+
+  // Keyboard shortcut Ctrl+J / Cmd+J to toggle AI Chat
+  window.addEventListener("keydown", (e: KeyboardEvent) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "j") {
+      e.preventDefault();
+      toggleChat();
+    }
+  });
+
+  function appendUserBubble(text: string) {
+    if (chatWelcome) chatWelcome.style.display = "none";
+    const bubble = document.createElement("div");
+    bubble.className = "chat-bubble user";
+    bubble.innerHTML = `
+      <div class="bubble-meta">
+        <span>You</span>
+        <span>${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+      </div>
+      <div class="bubble-content">${escapeHtml(text).replace(/\n/g, "<br/>")}</div>
+    `;
+    chatMessages.appendChild(bubble);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
+
+  function createAssistantBubble(): HTMLElement {
+    if (chatWelcome) chatWelcome.style.display = "none";
+    const bubble = document.createElement("div");
+    bubble.className = "chat-bubble assistant";
+    bubble.innerHTML = `
+      <div class="bubble-meta">
+        <span>OpenCode</span>
+        <span>${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+      </div>
+      <div class="bubble-tool-actions"></div>
+      <div class="bubble-content">
+        <div class="chat-thinking">
+          <span>Thinking</span>
+          <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        </div>
+      </div>
+    `;
+    chatMessages.appendChild(bubble);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+    activeAssistantBubble = bubble;
+    activeToolContainer = bubble.querySelector(".bubble-tool-actions");
+    return bubble;
+  }
+
+  async function sendChatMessage(promptText: string) {
+    const trimmed = promptText.trim();
+    if (!trimmed || isGenerating) return;
+
+    // Auto-save active file first so OpenCode gets latest on disk
+    if (isUnsaved) {
+      if (currentFilePath) {
+        await saveCurrentFile();
+      } else {
+        await saveScratchpadDefault(editorInput.value);
+      }
+    }
+
+    appendUserBubble(trimmed);
+    chatInput.value = "";
+    chatInput.style.height = "38px";
+
+    const assistantEl = createAssistantBubble();
+    const contentEl = assistantEl.querySelector(".bubble-content") as HTMLElement;
+
+    isGenerating = true;
+    chatSendBtn.style.display = "none";
+    chatStopBtn.style.display = "inline-flex";
+    chatStatusSub.textContent = "OpenCode working...";
+
+    try {
+      const reply = await invoke<StudioChatReply>("opencode_studio_chat", {
+        prompt: trimmed,
+        dir: currentDir,
+        sessionId: opencodeSessionId,
+        activeFile: currentFilePath,
+      });
+
+      if (reply.sessionId) {
+        opencodeSessionId = reply.sessionId;
+      }
+
+      contentEl.innerHTML = formatChatMarkdown(reply.text);
+
+      // Handle any files modified or created by OpenCode!
+      if (reply.modifiedFiles && reply.modifiedFiles.length > 0) {
+        if (currentDir) {
+          await loadDirectory(currentDir);
+        }
+
+        for (const modPath of reply.modifiedFiles) {
+          const modBase = modPath.split(/[/\\]/).pop();
+          if (currentFilePath && (modPath === currentFilePath || currentFilePath.endsWith(modBase || ""))) {
+            try {
+              const freshContent = await invoke<string>("read_text_file", { path: currentFilePath });
+              editorInput.value = freshContent;
+              updateHighlight();
+            } catch {}
+          } else if (!currentFilePath && modBase === "scratchpad.txt") {
+            await openScratchpadDefault();
+          }
+        }
+
+        savePill.textContent = `⚡ OpenCode synced ${reply.modifiedFiles.length} file(s)`;
+        savePill.className = "save-pill";
+      }
+    } catch (err: any) {
+      contentEl.innerHTML = `<span style="color: var(--amber)">⚠️ OpenCode: ${escapeHtml(String(err))}</span>`;
+    } finally {
+      isGenerating = false;
+      chatSendBtn.style.display = "inline-flex";
+      chatStopBtn.style.display = "none";
+      chatStatusSub.textContent = "Ready · Free to edit & create files";
+      activeAssistantBubble = null;
+      activeToolContainer = null;
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+  }
+
+  // Live streaming listeners from backend
+  try {
+    await listen<{ text: string }>("studio-chat-delta", (event) => {
+      if (activeAssistantBubble) {
+        const contentEl = activeAssistantBubble.querySelector(".bubble-content");
+        if (contentEl && event.payload?.text) {
+          contentEl.innerHTML = formatChatMarkdown(event.payload.text);
+          chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+      }
+    });
+
+    await listen<{ tool: string; action: string; filePath?: string }>("studio-chat-tool", (event) => {
+      if (activeToolContainer && event.payload) {
+        const card = document.createElement("div");
+        const t = (event.payload.tool || "").toLowerCase();
+        card.className = `chat-tool-card ${t === "edit" || t === "write" || t === "append" ? "edit" : "command"}`;
+        const icon = t === "write" ? "📄" : t === "edit" || t === "append" ? "✏️" : "⚡";
+        card.innerHTML = `<span>${icon}</span> <span>${escapeHtml(event.payload.action)}</span>`;
+        activeToolContainer.appendChild(card);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      }
+    });
+  } catch {}
+
+  // Chat input listeners
+  chatInput.addEventListener("keydown", (e: KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      void sendChatMessage(chatInput.value);
+    }
+  });
+
+  chatInput.addEventListener("input", () => {
+    chatInput.style.height = "auto";
+    chatInput.style.height = `${Math.min(chatInput.scrollHeight, 140)}px`;
+  });
+
+  chatSendBtn.addEventListener("click", () => {
+    void sendChatMessage(chatInput.value);
+  });
+
+  chatStopBtn.addEventListener("click", async () => {
+    try {
+      await invoke("opencode_studio_abort");
+    } catch {}
+  });
+
+  newChatBtn.addEventListener("click", () => {
+    opencodeSessionId = null;
+    chatMessages.innerHTML = "";
+    if (chatWelcome) {
+      chatWelcome.style.display = "flex";
+      chatMessages.appendChild(chatWelcome);
+    }
+    chatStatusSub.textContent = "New session ready";
+  });
+
+  // Quick chips & examples click
+  document.querySelectorAll(".quick-chip, .example-item").forEach((el) => {
+    el.addEventListener("click", () => {
+      const prompt = el.getAttribute("data-prompt");
+      if (prompt) {
+        chatInput.value = prompt;
+        void sendChatMessage(prompt);
+      }
+    });
   });
 
   // ── Two-way Event Sync with Island ─────────────────────────────────────────

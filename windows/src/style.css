@@ -2285,6 +2285,54 @@ input[type="range"]::-webkit-slider-thumb {
   color: #f87171;
 }
 
+/* ── Big Notes Badge at Top of Main Pill Container ───────────────────────── */
+.wf-top-notes-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 4px 13px;
+  border-radius: 999px;
+  background: rgba(168, 85, 247, 0.18);
+  border: 1px solid rgba(168, 85, 247, 0.45);
+  color: #f3e8ff;
+  font: 700 calc(11px * var(--size-font-scale, 1.28)) var(--font);
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 0 10px rgba(168, 85, 247, 0.28);
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.wf-top-notes-badge .icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.wf-top-notes-badge .label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.wf-top-notes-badge:hover {
+  background: rgba(168, 85, 247, 0.35);
+  border-color: rgba(168, 85, 247, 0.85);
+  box-shadow: 0 0 16px rgba(168, 85, 247, 0.6);
+  transform: translateY(-1px) scale(1.05);
+  color: #ffffff;
+}
+
+.wf-top-notes-badge:active {
+  transform: scale(0.96);
+}
+
+.p4-domain-badge + .wf-top-notes-badge {
+  margin-left: 8px;
+}
+
 /* ── Phase 5: AI Agent Waiting Gap Pill ("Agent working" / "Agent done") ──── */
 
 .p5-agent-pill {

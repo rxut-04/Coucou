@@ -88,6 +88,9 @@ export const Bridge = {
   openScratchpadWindow: () => call<void>("open_scratchpad_window"),
   readScratchpad: () => call<string>("read_scratchpad"),
   writeScratchpad: (content: string) => call<void>("write_scratchpad", { content }),
+  opencodeIsAvailable: () => call<boolean>("opencode_is_available"),
+  opencodeStudioAbort: () => call<void>("opencode_studio_abort"),
+
 
   /** Writes to %LOCALAPPDATA%\Coucou\coucou.log, next to the Rust lines. */
   log: (message: string) => call<void>("log_line", { message }),
