@@ -693,10 +693,11 @@ fn create_scratchpad_window(app: &AppHandle) {
     let url = scratchpad_page_url(app);
     match WebviewWindowBuilder::new(app, "scratchpad", url)
         .additional_browser_args(BROWSER_ARGS)
-        .title("Quick Scratchpad — Coucou")
-        .inner_size(860.0, 640.0)
-        .min_inner_size(480.0, 360.0)
+        .title("Quick Scratchpad & Code Editor — Coucou")
+        .inner_size(1120.0, 720.0)
+        .min_inner_size(520.0, 400.0)
         .resizable(true)
+        .maximizable(true)
         .visible(false)
         .center()
         .build()
@@ -744,6 +745,24 @@ fn open_scratchpad_window(app: AppHandle) {
     show_scratchpad_window(&app);
 }
 
+#[derive(Serialize, serde::Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct FileItem {
+    pub name: String,
+    pub path: String,
+    pub is_dir: bool,
+    pub size: u64,
+    pub ext: String,
+}
+
+#[derive(Serialize, serde::Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct DirListing {
+    pub current_path: String,
+    pub parent_path: Option<String>,
+    pub items: Vec<FileItem>,
+}
+
 fn scratchpad_file_path() -> std::path::PathBuf {
     platform::config_dir().join("scratchpad.txt")
 }
@@ -762,6 +781,184 @@ fn write_scratchpad(app: AppHandle, content: String) {
     }
     let _ = std::fs::write(&path, &content);
     let _ = app.emit("scratchpad-updated", content);
+}
+
+#[tauri::command]
+fn list_dir(path: Option<String>) -> Result<DirListing, String> {
+    let dir_path = match path {
+        Some(p) if !p.trim().is_empty() => std::path::PathBuf::from(p),
+        _ => {
+            let default_notes = platform::config_dir().join("notes");
+            let _ = std::fs::create_dir_all(&default_notes);
+            default_notes
+        }
+    };
+
+    let canonical = dir_path.canonicalize().unwrap_or(dir_path.clone());
+    let parent = canonical.parent().map(|p| p.to_string_lossy().to_string());
+
+    let entries = std::fs::read_dir(&canonical).map_err(|e| e.to_string())?;
+    let mut items = Vec::new();
+
+    for entry in entries.flatten() {
+        let meta = match entry.metadata() {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        let file_name = entry.file_name().to_string_lossy().to_string();
+        if file_name.starts_with('.') {
+            continue;
+        }
+        let full_path = entry.path().to_string_lossy().to_string();
+        let is_dir = meta.is_dir();
+        let size = meta.len();
+        let ext = entry.path().extension().map(|e| e.to_string_lossy().to_string()).unwrap_or_default();
+
+        items.push(FileItem {
+            name: file_name,
+            path: full_path,
+            is_dir,
+            size,
+            ext,
+        });
+    }
+
+    items.sort_by(|a, b| {
+        match (a.is_dir, b.is_dir) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+        }
+    });
+
+    Ok(DirListing {
+        current_path: canonical.to_string_lossy().to_string(),
+        parent_path: parent,
+        items,
+    })
+}
+
+#[tauri::command]
+fn read_text_file(path: String) -> Result<String, String> {
+    std::fs::read_to_string(&path).map_err(|e| format!("Failed to read {path}: {e}"))
+}
+
+#[tauri::command]
+fn write_text_file(path: String, content: String) -> Result<(), String> {
+    if let Some(parent) = std::path::Path::new(&path).parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    std::fs::write(&path, content).map_err(|e| format!("Failed to save {path}: {e}"))
+}
+
+#[tauri::command]
+fn create_file(parent_dir: String, name: String) -> Result<String, String> {
+    let parent = std::path::Path::new(&parent_dir);
+    if !parent.is_dir() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let target = parent.join(&name);
+    if target.exists() {
+        return Err("File already exists".into());
+    }
+    std::fs::write(&target, "").map_err(|e| e.to_string())?;
+    Ok(target.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn create_dir(parent_dir: String, name: String) -> Result<String, String> {
+    let target = std::path::Path::new(&parent_dir).join(&name);
+    std::fs::create_dir_all(&target).map_err(|e| e.to_string())?;
+    Ok(target.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn delete_entry(path: String) -> Result<(), String> {
+    let target = std::path::Path::new(&path);
+    if target.is_dir() {
+        std::fs::remove_dir_all(target).map_err(|e| e.to_string())
+    } else {
+        std::fs::remove_file(target).map_err(|e| e.to_string())
+    }
+}
+
+#[tauri::command]
+async fn pick_folder_dialog() -> Result<Option<String>, String> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+    if let Ok(out) = std::process::Command::new("kdialog")
+        .arg("--getexistingdirectory")
+        .arg(&home)
+        .arg("--title")
+        .arg("Coucou — Open Folder")
+        .output()
+    {
+        if out.status.success() {
+            let picked = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !picked.is_empty() {
+                return Ok(Some(picked));
+            }
+        }
+        return Ok(None);
+    }
+
+    if let Ok(out) = std::process::Command::new("zenity")
+        .arg("--file-selection")
+        .arg("--directory")
+        .arg("--title=Coucou — Open Folder")
+        .output()
+    {
+        if out.status.success() {
+            let picked = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !picked.is_empty() {
+                return Ok(Some(picked));
+            }
+        }
+        return Ok(None);
+    }
+    Ok(None)
+}
+
+#[tauri::command]
+async fn pick_file_dialog() -> Result<Option<String>, String> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+    if let Ok(out) = std::process::Command::new("kdialog")
+        .arg("--getopenfilename")
+        .arg(&home)
+        .arg("--title")
+        .arg("Coucou — Open File")
+        .output()
+    {
+        if out.status.success() {
+            let picked = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !picked.is_empty() {
+                return Ok(Some(picked));
+            }
+        }
+        return Ok(None);
+    }
+
+    if let Ok(out) = std::process::Command::new("zenity")
+        .arg("--file-selection")
+        .arg("--title=Coucou — Open File")
+        .output()
+    {
+        if out.status.success() {
+            let picked = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !picked.is_empty() {
+                return Ok(Some(picked));
+            }
+        }
+        return Ok(None);
+    }
+    Ok(None)
+}
+
+#[tauri::command]
+fn set_scratchpad_fullscreen(app: AppHandle, fullscreen: bool) -> Result<(), String> {
+    let Some(win) = app.get_webview_window("scratchpad") else {
+        return Err("Scratchpad window not found".into());
+    };
+    win.set_fullscreen(fullscreen).map_err(|e| e.to_string())
 }
 
 pub fn run() {
@@ -857,6 +1054,15 @@ pub fn run() {
             open_scratchpad_window,
             read_scratchpad,
             write_scratchpad,
+            list_dir,
+            read_text_file,
+            write_text_file,
+            create_file,
+            create_dir,
+            delete_entry,
+            pick_folder_dialog,
+            pick_file_dialog,
+            set_scratchpad_fullscreen,
             set_paused,
             shortcuts_status,
             shortcuts_suspend,
