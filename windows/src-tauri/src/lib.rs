@@ -649,6 +649,16 @@ fn settings_page_url(app: &AppHandle) -> WebviewUrl {
     WebviewUrl::App("settings.html".into())
 }
 
+fn scratchpad_page_url(app: &AppHandle) -> WebviewUrl {
+    #[cfg(dev)]
+    if let Some(mut base) = app.config().build.dev_url.clone() {
+        base.set_path("/scratchpad.html");
+        return WebviewUrl::External(base);
+    }
+    let _ = app;
+    WebviewUrl::App("scratchpad.html".into())
+}
+
 /// The settings window is created hidden at launch and only ever shown and
 /// hidden afterwards. A WebView2 window created later — on the main thread or
 /// not — silently comes up blank in this app, so the window that works is the
@@ -679,6 +689,31 @@ fn create_settings_window(app: &AppHandle) {
     }
 }
 
+fn create_scratchpad_window(app: &AppHandle) {
+    let url = scratchpad_page_url(app);
+    match WebviewWindowBuilder::new(app, "scratchpad", url)
+        .additional_browser_args(BROWSER_ARGS)
+        .title("Quick Scratchpad — Coucou")
+        .inner_size(860.0, 640.0)
+        .min_inner_size(480.0, 360.0)
+        .resizable(true)
+        .visible(false)
+        .center()
+        .build()
+    {
+        Ok(win) => {
+            let hidden = win.clone();
+            win.on_window_event(move |event| {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = hidden.hide();
+                }
+            });
+        }
+        Err(err) => log::line(format!("scratchpad window failed: {err}")),
+    }
+}
+
 pub fn show_settings_window(app: &AppHandle) {
     let Some(win) = app.get_webview_window("settings") else {
         log::line("settings window missing");
@@ -689,9 +724,44 @@ pub fn show_settings_window(app: &AppHandle) {
     let _ = win.set_focus();
 }
 
+pub fn show_scratchpad_window(app: &AppHandle) {
+    let Some(win) = app.get_webview_window("scratchpad") else {
+        log::line("scratchpad window missing");
+        return;
+    };
+    let _ = win.unminimize();
+    let _ = win.show();
+    let _ = win.set_focus();
+}
+
 #[tauri::command]
 fn open_settings_window(app: AppHandle) {
     show_settings_window(&app);
+}
+
+#[tauri::command]
+fn open_scratchpad_window(app: AppHandle) {
+    show_scratchpad_window(&app);
+}
+
+fn scratchpad_file_path() -> std::path::PathBuf {
+    platform::config_dir().join("scratchpad.txt")
+}
+
+#[tauri::command]
+fn read_scratchpad() -> String {
+    let path = scratchpad_file_path();
+    std::fs::read_to_string(&path).unwrap_or_default()
+}
+
+#[tauri::command]
+fn write_scratchpad(app: AppHandle, content: String) {
+    let path = scratchpad_file_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(&path, &content);
+    let _ = app.emit("scratchpad-updated", content);
 }
 
 pub fn run() {
@@ -784,6 +854,9 @@ pub fn run() {
             github_refresh,
             open_n8n,
             open_settings_window,
+            open_scratchpad_window,
+            read_scratchpad,
+            write_scratchpad,
             set_paused,
             shortcuts_status,
             shortcuts_suspend,
@@ -857,6 +930,7 @@ pub fn run() {
             tray::build(&handle)?;
             // Before the island: see create_settings_window.
             create_settings_window(&handle);
+            create_scratchpad_window(&handle);
             // Same rule for Mochi's desktop window.
             desktop::setup(&handle);
 

@@ -17,7 +17,7 @@ import {
 } from "./usage";
 import { buildDiffCard } from "./diff";
 import { lastTextStep } from "../core/diff";
-import { Bridge } from "../core/bridge";
+import { Bridge, onEvent } from "../core/bridge";
 import { buildRecap } from "./recap";
 import { buildWardrobe } from "./wardrobe";
 import type { Outfit, OutfitSelection } from "../mochi/wardrobe";
@@ -3299,6 +3299,18 @@ function buildNote(actions: ViewActions): ViewHost {
     savedNotes = localStorage.getItem("coucou_scratchpad") ?? "";
   } catch {}
 
+  // Fetch initial note from backend file if available
+  void Bridge.readScratchpad().then((content) => {
+    if (content && content.length > 0) {
+      savedNotes = content;
+      try { localStorage.setItem("coucou_scratchpad", content); } catch {}
+      if (document.activeElement !== textarea) {
+        textarea.value = content;
+        updateCounts();
+      }
+    }
+  });
+
   const header = h("div", { class: "note-header" });
   const titleGroup = h(
     "div",
@@ -3306,6 +3318,19 @@ function buildNote(actions: ViewActions): ViewHost {
     h("span", { class: "note-icon", text: "📝" }),
     h("span", { class: "note-title", text: "Quick Scratchpad" }),
     h("span", { class: "note-save-status", text: "● Auto-saved" }),
+  );
+
+  const expandBtn = h(
+    "button",
+    {
+      class: "note-btn note-expand-btn",
+      title: "Open in wider standalone window for writing long notes",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        void Bridge.openScratchpadWindow();
+      },
+    },
+    h("span", { text: "⤢ Window" }),
   );
 
   const copyBtn = h(
@@ -3338,6 +3363,7 @@ function buildNote(actions: ViewActions): ViewHost {
         if (textarea.value.trim() && confirm("Clear all notes in scratchpad?")) {
           textarea.value = "";
           try { localStorage.removeItem("coucou_scratchpad"); } catch {}
+          void Bridge.writeScratchpad("");
           updateCounts();
         }
       },
@@ -3359,7 +3385,7 @@ function buildNote(actions: ViewActions): ViewHost {
     h("span", { text: "✕ Done" }),
   );
 
-  const btnGroup = h("div", { class: "note-btn-group" }, copyBtn, clearBtn, closeBtn);
+  const btnGroup = h("div", { class: "note-btn-group" }, expandBtn, copyBtn, clearBtn, closeBtn);
   header.append(titleGroup, btnGroup);
 
   const textarea = h("textarea", {
@@ -3369,7 +3395,7 @@ function buildNote(actions: ViewActions): ViewHost {
   }) as HTMLTextAreaElement;
 
   const countSpan = h("div", { class: "note-counter", text: "0 chars · 0 lines" });
-  const tipSpan = h("div", { class: "note-tip", text: "Auto-saved locally · Press Esc or ✕ Done to exit" });
+  const tipSpan = h("div", { class: "note-tip", text: "Auto-saved locally · Press ⤢ Window for a wider space" });
   const footer = h("div", { class: "note-footer" }, tipSpan, countSpan);
 
   const updateCounts = () => {
@@ -3392,6 +3418,7 @@ function buildNote(actions: ViewActions): ViewHost {
     try {
       localStorage.setItem("coucou_scratchpad", textarea.value);
     } catch {}
+    void Bridge.writeScratchpad(textarea.value);
     updateCounts();
   });
   textarea.addEventListener("keydown", (e: KeyboardEvent) => {
@@ -3401,6 +3428,22 @@ function buildNote(actions: ViewActions): ViewHost {
       textarea.blur();
       void Bridge.focusWindow(false);
       actions.setView("overview");
+    }
+  });
+
+  // Listen to external window updates
+  void onEvent<string>("scratchpad-updated", (newContent: string) => {
+    if (document.activeElement !== textarea && newContent !== textarea.value) {
+      textarea.value = newContent;
+      try { localStorage.setItem("coucou_scratchpad", newContent); } catch {}
+      updateCounts();
+    }
+  });
+
+  window.addEventListener("storage", (e) => {
+    if (e.key === "coucou_scratchpad" && e.newValue !== null && document.activeElement !== textarea) {
+      textarea.value = e.newValue;
+      updateCounts();
     }
   });
 

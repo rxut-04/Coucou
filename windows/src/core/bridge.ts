@@ -85,6 +85,9 @@ export const Bridge = {
   quit: () => call<void>("quit_app"),
 
   openSettingsWindow: () => call<void>("open_settings_window"),
+  openScratchpadWindow: () => call<void>("open_scratchpad_window"),
+  readScratchpad: () => call<string>("read_scratchpad"),
+  writeScratchpad: (content: string) => call<void>("write_scratchpad", { content }),
 
   /** Writes to %LOCALAPPDATA%\Coucou\coucou.log, next to the Rust lines. */
   log: (message: string) => call<void>("log_line", { message }),
