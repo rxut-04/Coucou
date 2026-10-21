@@ -178,6 +178,11 @@ export function registerShortcutHandlers(host: ShortcutHost, resume: () => void)
     host.alert("voice");
     host.takeKeyboard();
   });
+  void onEvent<null>("show-chat-view", () => {
+    resume();
+    host.alert("prompt");
+    host.takeKeyboard();
+  });
 
   // Capture phase: the chat field stops its own key events from bubbling.
   window.addEventListener(
