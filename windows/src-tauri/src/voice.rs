@@ -233,7 +233,20 @@ pub async fn ensure_whisper_server(state: Arc<VoiceManagerState>) -> Result<(), 
     Ok(())
 }
 
-/// Sends an in-memory WAV buffer to the whisper server and extracts clean text.
+static INFERENCE_MUTEX: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+static HTTP_CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+
+fn get_http_client() -> &'static reqwest::Client {
+    HTTP_CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .timeout(Duration::from_secs(12))
+            .pool_idle_timeout(Duration::from_secs(90))
+            .build()
+            .unwrap_or_default()
+    })
+}
+
+/// Sends an in-memory WAV buffer to the whisper server and extracts clean text with retry logic.
 pub async fn transcribe_wav(
     port: u16,
     wav_bytes: &[u8],
@@ -251,48 +264,67 @@ pub async fn transcribe_wav(
     );
     body.extend_from_slice(header.as_bytes());
     body.extend_from_slice(wav_bytes);
-    let footer = format!("\r\n--{boundary}--\r\n");
-    body.extend_from_slice(footer.as_bytes());
+
+    // Explicit temperature=0.0 parameter to prevent hallucinated lyrics/background music
+    let temp_part = format!(
+        "\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"temperature\"\r\n\r\n0.0\r\n--{boundary}--\r\n"
+    );
+    body.extend_from_slice(temp_part.as_bytes());
 
     let url = format!("http://{}:{}/inference", VOICE_SERVER_HOST, port);
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = get_http_client();
 
-    let res = client
-        .post(&url)
-        .header("Content-Type", format!("multipart/form-data; boundary={boundary}"))
-        .body(body)
-        .send()
-        .await
-        .map_err(|e| format!("HTTP request to whisper-server failed: {e}"))?;
+    let mut last_err = String::new();
+    for _attempt in 0..3 {
+        let req = client
+            .post(&url)
+            .header("Content-Type", format!("multipart/form-data; boundary={boundary}"))
+            .body(body.clone());
 
-    if !res.status().is_success() {
-        return Err(format!("whisper-server returned HTTP {}", res.status()));
+        match req.send().await {
+            Ok(res) => {
+                if res.status().is_success() {
+                    let resp_text = res.text().await.map_err(|e| e.to_string())?;
+
+                    #[derive(Deserialize)]
+                    struct InferenceResult {
+                        text: Option<String>,
+                    }
+
+                    let parsed: InferenceResult = serde_json::from_str(&resp_text)
+                        .map_err(|e| format!("failed to parse whisper response '{resp_text}': {e}"))?;
+
+                    let mut clean = parsed.text.unwrap_or_default();
+                    for tag in &["[BLANK_AUDIO]", "[MUSIC]", "[MÚSICA]", "[APPLAUSE]", "[LAUGHTER]"] {
+                        clean = clean.replace(tag, "");
+                    }
+                    if let Some(idx) = clean.find(']') {
+                        let prefix = clean[..idx].to_lowercase();
+                        if prefix.contains("música") || prefix.contains("music") || prefix.contains("audio") {
+                            clean = clean[idx + 1..].to_string();
+                        }
+                    }
+
+                    clean = clean
+                        .trim()
+                        .trim_start_matches(|c: char| c == '[' || c == '(')
+                        .trim_end_matches(|c: char| c == ']' || c == ')')
+                        .trim()
+                        .to_string();
+
+                    return Ok(clean);
+                } else {
+                    last_err = format!("whisper-server returned HTTP {}", res.status());
+                }
+            }
+            Err(e) => {
+                last_err = format!("{e}");
+                tokio::time::sleep(Duration::from_millis(150)).await;
+            }
+        }
     }
 
-    let resp_text = res.text().await.map_err(|e| e.to_string())?;
-
-    // Parse JSON response: `{"text": "..."}`
-    #[derive(Deserialize)]
-    struct InferenceResult {
-        text: Option<String>,
-    }
-
-    let parsed: InferenceResult = serde_json::from_str(&resp_text)
-        .map_err(|e| format!("failed to parse whisper response '{resp_text}': {e}"))?;
-
-    let clean = parsed
-        .text
-        .unwrap_or_default()
-        .trim()
-        .trim_start_matches(|c: char| c == '[' || c == '(')
-        .trim_end_matches(|c: char| c == ']' || c == ')')
-        .trim()
-        .to_string();
-
-    Ok(clean)
+    Err(format!("HTTP request to whisper-server failed: {last_err}"))
 }
 
 /// Spawns the audio recorder and VAD loop.
@@ -440,6 +472,10 @@ pub fn start_audio_capture_and_vad(
                         let app_for_partial = app_clone.clone();
 
                         tauri::async_runtime::spawn(async move {
+                            // Non-blocking try_lock: only run partial if inference engine is completely free
+                            let Ok(_lock) = INFERENCE_MUTEX.try_lock() else {
+                                return;
+                            };
                             let wav = pcm_to_wav(&buffer_snapshot);
                             if let Ok(partial) = transcribe_wav(VOICE_SERVER_PORT, &wav).await {
                                 if !partial.is_empty() {
@@ -511,6 +547,8 @@ pub fn start_audio_capture_and_vad(
         let state_final = state_clone.clone();
 
         tauri::async_runtime::spawn(async move {
+            // Acquire inference lock to guarantee whisper-server is exclusively ours
+            let _lock = INFERENCE_MUTEX.lock().await;
             match transcribe_wav(VOICE_SERVER_PORT, &final_wav).await {
                 Ok(final_text) => {
                     let latency_ms = silence_t0.elapsed().as_millis() as u64;
