@@ -766,6 +766,193 @@ pub async fn voice_process_query(
     Ok(crate::voice_intent::process_voice_query(&app, &query).await)
 }
 
+/// Speaks text locally on Linux using speech-dispatcher (spd-say) with fallback to espeak-ng / espeak.
+/// Completely local, 0 cloud dependencies, zero external network.
+pub fn local_tts_speak(text: &str) {
+    let clean: String = text
+        .chars()
+        .filter(|c| c.is_alphanumeric() || c.is_whitespace() || *c == '.' || *c == ',' || *c == '!' || *c == '?' || *c == '\'' || *c == '"' || *c == '-')
+        .collect();
+    let trimmed = clean.trim().to_string();
+    if trimmed.is_empty() {
+        return;
+    }
+
+    std::thread::spawn(move || {
+        let status = Command::new("spd-say")
+            .args(["-t", "female1", "-r", "8", &trimmed])
+            .status();
+
+        if status.is_err() {
+            let _ = Command::new("espeak-ng")
+                .arg(&trimmed)
+                .status()
+                .or_else(|_| Command::new("espeak").arg(&trimmed).status());
+        }
+    });
+}
+
+/// Background passive wake-word detector.
+/// Uses PipeWire/PulseAudio capture + energy threshold + whisper slice matching.
+/// Triggers when user says "Hey Siri", "Siri", "Hey Coucou", "Coucou", "Hey Mochi".
+pub fn spawn_wake_word_detector(app: AppHandle, state: Arc<VoiceManagerState>) {
+    std::thread::spawn(move || {
+        // Sleep on app boot to let whisper-server finish model loading
+        std::thread::sleep(Duration::from_millis(2500));
+
+        loop {
+            // If active listening or recording is in progress, pause wake detection
+            if state.is_listening.load(Ordering::SeqCst) {
+                std::thread::sleep(Duration::from_millis(300));
+                continue;
+            }
+
+            // Spawn audio capture process
+            let child_proc = Command::new("pw-record")
+                .args(["--rate", "16000", "--channels", "1", "--format", "s16", "-"])
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()
+                .or_else(|_| {
+                    Command::new("parec")
+                        .args(["--rate", "16000", "--channels", "1", "--format", "s16le"])
+                        .stdin(Stdio::null())
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::null())
+                        .spawn()
+                })
+                .or_else(|_| {
+                    Command::new("arecord")
+                        .args(["-r", "16000", "-c", "1", "-f", "S16_LE", "-t", "raw", "-"])
+                        .stdin(Stdio::null())
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::null())
+                        .spawn()
+                });
+
+            let mut child = match child_proc {
+                Ok(c) => c,
+                Err(_) => {
+                    std::thread::sleep(Duration::from_secs(2));
+                    continue;
+                }
+            };
+
+            let mut stdout = match child.stdout.take() {
+                Some(s) => s,
+                None => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    std::thread::sleep(Duration::from_secs(1));
+                    continue;
+                }
+            };
+
+            let mut frame_buf = [0u8; 1280]; // 40ms frame
+            let mut noise_floor: f32 = 400.0;
+            let mut speech_buffer: Vec<u8> = Vec::with_capacity(16000 * 2 * 3); // up to 3s
+
+            while !state.is_listening.load(Ordering::SeqCst) {
+                match stdout.read_exact(&mut frame_buf) {
+                    Ok(_) => {
+                        let mut sum_sq: f64 = 0.0;
+                        for chunk in frame_buf.chunks_exact(2) {
+                            let sample = i16::from_le_bytes([chunk[0], chunk[1]]) as f64;
+                            sum_sq += sample * sample;
+                        }
+                        let num_samples = frame_buf.len() / 2;
+                        let rms = ((sum_sq / (num_samples as f64)).sqrt()) as f32;
+
+                        if speech_buffer.is_empty() {
+                            if rms < noise_floor * 1.5 {
+                                noise_floor = noise_floor * 0.98 + rms * 0.02;
+                            }
+                            let threshold = (noise_floor * 2.5).max(1200.0);
+                            if rms > threshold {
+                                speech_buffer.extend_from_slice(&frame_buf);
+                            }
+                        } else {
+                            // Accumulating speech audio
+                            speech_buffer.extend_from_slice(&frame_buf);
+
+                            // Once ~1.6s of speech is collected (40 frames = 1.6s = 51200 bytes)
+                            if speech_buffer.len() >= 51200 {
+                                let wav = pcm_to_wav(&speech_buffer);
+                                speech_buffer.clear();
+
+                                // Non-blocking check on inference mutex so we never block active recording
+                                if let Ok(_lock) = INFERENCE_MUTEX.try_lock() {
+                                    let app_cl = app.clone();
+                                    let state_cl = state.clone();
+
+                                    tauri::async_runtime::block_on(async {
+                                        if let Ok(transcription) = transcribe_wav(VOICE_SERVER_PORT, &wav).await {
+                                            let lower = transcription.to_lowercase();
+                                            let wake_keywords = [
+                                                "hey siri", "siri", "hey coucou", "coucou", "hey mochi", "mochi", "ok coucou", "cuckoo", "hey cuckoo"
+                                            ];
+
+                                            let is_wake = wake_keywords.iter().any(|k| lower.contains(k));
+                                            if is_wake {
+                                                crate::log::line(format!("wake-word detected in speech: \"{}\"", lower));
+
+                                                // Check if user spoke command together with wake word
+                                                let mut stripped = lower.clone();
+                                                for k in &wake_keywords {
+                                                    stripped = stripped.replace(k, "");
+                                                }
+                                                let stripped_trimmed = stripped.trim();
+
+                                                if stripped_trimmed.len() > 6 {
+                                                    // Drop down island
+                                                    let _ = app_cl.emit("voice-state", VoiceStatePayload {
+                                                        state: "speaking".to_string(),
+                                                        error: None,
+                                                    });
+                                                    // Process command immediately
+                                                    let app_proc = app_cl.clone();
+                                                    let cmd = lower.clone();
+                                                    tauri::async_runtime::spawn(async move {
+                                                        crate::voice_intent::process_voice_query(&app_proc, &cmd).await;
+                                                    });
+                                                } else {
+                                                    // Greet user, drop down island, and begin active listening
+                                                    let _ = app_cl.emit("voice-state", VoiceStatePayload {
+                                                        state: "speaking".to_string(),
+                                                        error: None,
+                                                    });
+                                                    let _ = app_cl.emit("voice-final-transcript", VoiceTranscriptPayload {
+                                                        text: "Hey sir, what's on your mind today?".to_string(),
+                                                        is_final: true,
+                                                        latency_ms: None,
+                                                    });
+
+                                                    local_tts_speak("Hey sir, what's on your mind today?");
+
+                                                    // Give TTS time to speak greeting before starting mic listener
+                                                    tokio::time::sleep(Duration::from_millis(1300)).await;
+
+                                                    let _ = start_voice_listening(app_cl, state_cl).await;
+                                                }
+                                            }
+                                        }
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+
+            let _ = child.kill();
+            let _ = child.wait();
+            std::thread::sleep(Duration::from_millis(200));
+        }
+    });
+}
+
 /// Initializes voice service and registers DBus on app startup.
 pub fn start(app: AppHandle) {
     let state = app.state::<Arc<VoiceManagerState>>().inner().clone();
@@ -791,4 +978,9 @@ pub fn start(app: AppHandle) {
             eprintln!("[coucou] whisper-server background startup: {e}");
         }
     });
+
+    // Spawn background wake-word detector
+    let state_for_wakeword = state.clone();
+    let app_for_wakeword = app.clone();
+    spawn_wake_word_detector(app_for_wakeword, state_for_wakeword);
 }

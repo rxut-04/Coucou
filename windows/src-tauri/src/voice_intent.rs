@@ -130,41 +130,97 @@ pub fn url_encode(input: &str) -> String {
 }
 
 /// Attempts to resolve a spoken query to an exact YouTube video ID using yt-dlp.
-/// Takes ~1.5 - 2s on broadband; returns None on failure or timeout so callers can fallback to search URL.
-pub fn resolve_youtube_video(query: &str) -> Option<String> {
-    let clean = query.trim();
-    if clean.is_empty() {
-        return None;
+/// Takes ~1.5 - 2s on broadband; returns (Option<String>, usize) representing (video_id, ordinal_index).
+pub fn resolve_youtube_video(query: &str) -> (Option<String>, usize) {
+    let raw = query.trim();
+    if raw.is_empty() {
+        return (None, 1);
     }
+
+    let mut ordinal = 1usize;
+    let mut clean = raw.to_lowercase();
+
+    // Detect ordinals: 3rd, third, teesra, 2nd, second, dusra, etc.
+    let ordinals: &[(&[&str], usize)] = &[
+        (&["3rd video", "third video", "play 3rd", "play third", "3rd", "third", "teesra video", "teesra"], 3),
+        (&["2nd video", "second video", "play 2nd", "play second", "2nd", "second", "dusra video", "dusra", "doosra"], 2),
+        (&["4th video", "fourth video", "play 4th", "play fourth", "4th", "fourth", "chautha video", "chautha"], 4),
+        (&["5th video", "fifth video", "play 5th", "play fifth", "5th", "fifth", "panchwa video", "panchwa"], 5),
+        (&["1st video", "first video", "play 1st", "play first", "1st", "first", "pehla video", "pehla"], 1),
+    ];
+
+    for (patterns, idx) in ordinals {
+        for p in *patterns {
+            if clean.contains(p) {
+                ordinal = *idx;
+                clean = clean.replace(p, "");
+                break;
+            }
+        }
+        if ordinal > 1 {
+            break;
+        }
+    }
+
+    // Clean up residual phrasing
+    let clean = clean
+        .replace("and play", "")
+        .replace("and search for", "")
+        .replace("search for", "")
+        .replace("in browser", "")
+        .replace("open youtube", "")
+        .replace("on youtube", "")
+        .replace("youtube", "")
+        .replace("video", "")
+        .replace("play", "")
+        .trim()
+        .to_string();
+
+    let target_query = if clean.is_empty() { raw.to_string() } else { clean };
+
     let ytdlp_candidates = [
         "/home/om-raut/.local/bin/yt-dlp",
         "yt-dlp",
         "/usr/local/bin/yt-dlp",
         "/usr/bin/yt-dlp",
     ];
-    let binary = ytdlp_candidates.iter().find(|bin| {
+    let Some(binary) = ytdlp_candidates.iter().find(|bin| {
         Command::new(bin).arg("--version").output().is_ok()
-    })?;
+    }) else {
+        return (None, ordinal);
+    };
 
+    let search_arg = format!("ytsearch{}:{}", ordinal, target_query);
     let child = Command::new(binary)
         .args([
             "--print", "%(id)s",
-            &format!("ytsearch1:{}", clean),
+            &search_arg,
             "--no-warnings",
             "--no-playlist",
-            "--socket-timeout", "3",
+            "--socket-timeout", "4",
         ])
         .output();
 
     if let Ok(output) = child {
         if output.status.success() {
-            let id = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !id.is_empty() && id.len() >= 8 && id.len() <= 16 && !id.contains(' ') && !id.contains('\n') {
-                return Some(id);
+            let stdout_str = String::from_utf8_lossy(&output.stdout);
+            let ids: Vec<&str> = stdout_str
+                .lines()
+                .map(|l| l.trim())
+                .filter(|l| !l.is_empty() && l.len() >= 8 && l.len() <= 16 && !l.contains(' '))
+                .collect();
+
+            if !ids.is_empty() {
+                let selected = if ids.len() >= ordinal {
+                    ids[ordinal - 1]
+                } else {
+                    ids[0]
+                };
+                return (Some(selected.to_string()), ordinal);
             }
         }
     }
-    None
+    (None, ordinal)
 }
 
 /// Records the last failed command from terminal or agent hooks for smart path context.
@@ -184,22 +240,55 @@ pub fn record_failed_command(cmd: &str, exit_code: i32, detail: &str) {
 }
 
 /// Normalizes raw transcribed text for intent classification:
-/// lowercase, trims punctuation, removes excess whitespace.
+/// lowercase, trims punctuation, strips polite fillers and wake phrases.
 pub fn normalize_query(text: &str) -> String {
     let trimmed = text.trim().to_lowercase();
     let cleaned: String = trimmed
         .chars()
         .map(|c| if c.is_alphanumeric() || c.is_whitespace() || c == '.' || c == '-' || c == '_' || c == '/' || c == '\'' || c == '%' { c } else { ' ' })
         .collect();
-    cleaned.split_whitespace().collect::<Vec<&str>>().join(" ")
+    let mut normalized = cleaned.split_whitespace().collect::<Vec<&str>>().join(" ");
+
+    // Strip wake word prefixes if user speaks wake phrase + command in one breath
+    for wake_prefix in &["hey siri", "hey coucou", "hey mochi", "ok coucou", "siri", "coucou"] {
+        if normalized.starts_with(wake_prefix) {
+            normalized = normalized[wake_prefix.len()..].trim().to_string();
+            break;
+        }
+    }
+
+    // Strip conversational politeness and greetings
+    let preambles = [
+        "hope you are doing well",
+        "hope you are doing good",
+        "hope youre doing well",
+        "how are you doing",
+        "how are you",
+        "can you please",
+        "could you please",
+        "i want you to",
+        "kripya karke",
+        "s'il vous plait",
+        "por favor",
+    ];
+    for p in preambles {
+        if normalized.starts_with(p) {
+            normalized = normalized[p.len()..].trim().to_string();
+            if normalized.starts_with(',') || normalized.starts_with("and ") {
+                normalized = normalized.trim_start_matches(',').trim_start_matches("and ").trim().to_string();
+            }
+        }
+    }
+
+    normalized
 }
 
 /// Splits compound utterances like "ouvre VS Code et commence un focus session"
 /// or "terminal kholo aur focus start karo" into separate commands.
 fn split_compound(query: &str) -> Vec<String> {
-    // Avoid splitting "open youtube and play lofi" or "youtube pe lofi play karo"
+    // Avoid splitting YouTube commands with search and play
     let q = query.to_lowercase();
-    if (q.contains("youtube") && q.contains("play"))
+    if (q.contains("youtube") && (q.contains("play") || q.contains("search") || q.contains("video")))
         || (q.contains("youtube") && (q.contains("chalao") || q.contains("bajao") || q.contains("lagao")))
         || (q.contains("find") && q.contains("open"))
         || (q.contains("dhundo") && q.contains("kholo"))
@@ -263,7 +352,12 @@ fn resolve_follow_up(query: &str, memory: &VoiceMemoryState) -> Option<VoiceInte
         ("third", 2), ("3rd", 2), ("teesra", 2), ("troisieme", 2), ("tercero", 2),
     ];
 
-    if q.contains("open") || q.contains("kholo") || q.contains("ouvre") || q.contains("abre") {
+    if (q.contains("open") || q.contains("kholo") || q.contains("ouvre") || q.contains("abre"))
+        && !q.contains("youtube")
+        && !q.contains("video")
+        && !q.contains("song")
+        && !memory.last_search_results.is_empty()
+    {
         for (word, idx) in index_map {
             if q.contains(word) {
                 if let Some(target) = memory.last_search_results.get(idx) {
@@ -687,7 +781,7 @@ pub fn fast_path_classify(raw_query: &str) -> Option<VoiceIntent> {
         }
 
         // Spanish: "reproduce <query> en youtube", "pon <query> en youtube"
-        if q.starts_with("reproduce ") || q.starts_with("reproducir ") || q.starts_with("pon ") || q.starts_with("poner ") || q.contains("en youtube") {
+        if q.starts_with("reproduce ") || q.starts_with("reproducir ") || q.starts_with("pon ") || q.starts_with("poner ") || q.contains(" en youtube") || q.ends_with(" en youtube") {
             let cleaned = q
                 .replace("reproducir", "")
                 .replace("reproduce", "")
@@ -702,19 +796,25 @@ pub fn fast_path_classify(raw_query: &str) -> Option<VoiceIntent> {
             return Some(VoiceIntent::PlayYouTube { query });
         }
 
-        // English: "open youtube and play <query>", "play <query> on youtube", "play <query>"
-        if q.contains("play") {
+        // English: "open youtube and play <query>", "play <query> on youtube", "play <query>", "open youtube in browser and search for ... and play ..."
+        if q.contains("play") || (q.contains("youtube") && (q.contains("search") || q.contains("video"))) {
             let mut extracted = q
+                .replace("open youtube in browser and search for", "")
+                .replace("open youtube in browser and", "")
+                .replace("open youtube in browser", "")
                 .replace("open youtube and play", "")
                 .replace("open youtube and", "")
+                .replace("open youtube", "")
                 .replace("on youtube", "")
                 .replace("in youtube", "")
+                .replace("in browser", "")
                 .replace("youtube", "")
-                .replace("play", "")
-                .replace("song", "")
-                .replace("music", "")
                 .trim()
                 .to_string();
+
+            if extracted.starts_with("play ") && !extracted.starts_with("play 1") && !extracted.starts_with("play 2") && !extracted.starts_with("play 3") && !extracted.starts_with("play 4") && !extracted.starts_with("play 5") && !extracted.starts_with("play first") && !extracted.starts_with("play second") && !extracted.starts_with("play third") {
+                extracted = extracted["play ".len()..].trim().to_string();
+            }
             if extracted.is_empty() && (q.contains("lo-fi") || q.contains("lofi")) {
                 extracted = "lo-fi beats".to_string();
             }
@@ -1280,14 +1380,22 @@ pub fn execute_intent(app: &AppHandle, intent: &VoiceIntent) -> (bool, String) {
 
         VoiceIntent::PlayYouTube { query } => {
             // Attempt real video resolution via yt-dlp first
-            let video_id = resolve_youtube_video(query);
+            let (video_id, ordinal) = resolve_youtube_video(query);
             if let Some(ref id) = video_id {
                 let watch_url = format!("https://www.youtube.com/watch?v={}&autoplay=1", id);
                 let _ = Command::new("xdg-open").arg(&watch_url).spawn();
                 with_voice_memory(|mem| {
                     mem.last_topic = Some(query.clone());
                 });
-                (true, format!("Playing \"{}\" on YouTube", query))
+                let ord_text = match ordinal {
+                    1 => "".to_string(),
+                    2 => " (2nd video)".to_string(),
+                    3 => " (3rd video)".to_string(),
+                    4 => " (4th video)".to_string(),
+                    5 => " (5th video)".to_string(),
+                    n => format!(" ({}th video)", n),
+                };
+                (true, format!("Playing \"{}\"{} on YouTube", query, ord_text))
             } else {
                 let encoded = url_encode(query);
                 let url = format!("https://www.youtube.com/results?search_query={}", encoded);
@@ -1607,6 +1715,9 @@ pub async fn process_voice_query(
 
     // Emit event to dynamic island UI
     let _ = app.emit("voice-action-result", &result);
+
+    // Speak feedback locally so user hears voice confirmation
+    crate::voice::local_tts_speak(&result.feedback);
 
     crate::log::line(format!(
         "voice intent: query=\"{}\" fast_path={} decision={}ms total={}ms tier=\"{}\" feedback=\"{}\"",
@@ -1963,5 +2074,31 @@ mod tests {
             fast_path_classify("annule ca"),
             Some(VoiceIntent::Undo)
         );
+
+        // 6. Conversational preambles & YouTube with ordinals
+        let q1 = "hope you are doing well , open youtube in browser and search for siddhu mussala song and play 3rd video";
+        let c1 = fast_path_classify(q1);
+        assert!(matches!(c1, Some(VoiceIntent::PlayYouTube { .. })));
+        if let Some(VoiceIntent::PlayYouTube { query }) = c1 {
+            assert!(query.contains("siddhu mussala"));
+            assert!(query.contains("3rd video"));
+        }
+
+        let q2 = "hey siri open youtube in browser and search for siddhu mussala song and play 3rd video";
+        let c2 = fast_path_classify(q2);
+        assert!(matches!(c2, Some(VoiceIntent::PlayYouTube { .. })));
+
+        let q3 = "hey coucou volume up";
+        assert_eq!(
+            fast_path_classify(q3),
+            Some(VoiceIntent::MediaControl { action: "volume-up".into() })
+        );
+
+        // 7. YouTube ordinal resolution with yt-dlp
+        let (v_id, ord) = resolve_youtube_video("siddhu mussala song and play 3rd video");
+        assert_eq!(ord, 3);
+        if let Some(id) = v_id {
+            assert_eq!(id.len(), 11);
+        }
     }
 }
