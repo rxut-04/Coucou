@@ -523,7 +523,7 @@ pub fn start_audio_capture_and_vad(
                     *state_final.last_latency_ms.lock().unwrap() = latency_ms;
 
                     let _ = app_final.emit("voice-final-transcript", VoiceTranscriptPayload {
-                        text: final_text,
+                        text: final_text.clone(),
                         is_final: true,
                         latency_ms: Some(latency_ms),
                     });
@@ -532,6 +532,15 @@ pub fn start_audio_capture_and_vad(
                         state: "idle".to_string(),
                         error: None,
                     });
+
+                    // Trigger Voice Intent Engine immediately
+                    if !final_text.trim().is_empty() {
+                        let app_intent = app_final.clone();
+                        let text_intent = final_text.clone();
+                        tauri::async_runtime::spawn(async move {
+                            crate::voice_intent::process_voice_query(&app_intent, &text_intent).await;
+                        });
+                    }
                 }
                 Err(err) => {
                     crate::log::line(format!("voice transcription error: {err}"));
@@ -607,6 +616,11 @@ impl VoiceDbusObject {
             "latencyMs": latency,
         })
         .to_string()
+    }
+
+    async fn process_query(&self, query: String) -> String {
+        let res = crate::voice_intent::process_voice_query(&self.app, &query).await;
+        serde_json::to_string(&res).unwrap_or_default()
     }
 }
 
@@ -704,6 +718,14 @@ pub fn voice_status(state: State<'_, Arc<VoiceManagerState>>) -> serde_json::Val
         "lastTranscript": last_text,
         "latencyMs": latency,
     })
+}
+
+#[tauri::command]
+pub async fn voice_process_query(
+    app: AppHandle,
+    query: String,
+) -> Result<crate::voice_intent::VoiceActionResult, String> {
+    Ok(crate::voice_intent::process_voice_query(&app, &query).await)
 }
 
 /// Initializes voice service and registers DBus on app startup.

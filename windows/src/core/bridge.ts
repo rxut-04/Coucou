@@ -318,7 +318,19 @@ export const Bridge = {
   voiceCancel: () => call<void>("voice_cancel"),
   voiceToggle: () => call<boolean>("voice_toggle"),
   voiceStatus: () => call<VoiceStatus>("voice_status"),
+  voiceProcessQuery: (query: string) => call<VoiceActionResult>("voice_process_query", { query }),
 };
+
+export interface VoiceActionResult {
+  intent: string;
+  isFastPath: boolean;
+  success: boolean;
+  feedback: string;
+  query: string;
+  decisionLatencyMs: number;
+  totalLatencyMs: number;
+  clarification?: string | null;
+}
 
 export interface VoiceMeterPayload {
   level: number;

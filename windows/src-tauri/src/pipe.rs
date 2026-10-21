@@ -282,6 +282,9 @@ async fn handle(app: AppHandle, mut pipe: impl Relay) {
         let cmd = payload.get("cmd").and_then(Value::as_str).unwrap_or("command").to_string();
         let duration_secs = payload.get("duration").and_then(Value::as_f64).unwrap_or(0.0);
         let exit_code = payload.get("exit_code").and_then(Value::as_i64).unwrap_or(0) as i32;
+        if exit_code != 0 {
+            crate::voice_intent::record_failed_command(&cmd, exit_code, "Command exited with error");
+        }
         let finished = TerminalFinished {
             agent: agent_name.to_string(),
             cmd: cmd.clone(),
@@ -293,6 +296,12 @@ async fn handle(app: AppHandle, mut pipe: impl Relay) {
         log::line(format!("TERMINAL_EVENT agent={} cmd={} duration={} exit={}", agent_name, cmd, duration_secs, exit_code));
         pipe.finish();
         return;
+    }
+
+    if event == "PostToolUseFailure" || event == "StopFailure" {
+        let tool = payload.get("tool").or_else(|| payload.get("command")).and_then(Value::as_str).unwrap_or("tool");
+        let err = payload.get("error").or_else(|| payload.get("message")).and_then(Value::as_str).unwrap_or("failure");
+        crate::voice_intent::record_failed_command(tool, 1, err);
     }
 
     note_session_window(&pipe, &payload, &event);

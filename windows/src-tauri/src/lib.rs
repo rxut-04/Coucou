@@ -41,6 +41,7 @@ mod engine;
 mod health_mode;
 mod system_media;
 mod voice;
+pub mod voice_intent;
 
 use focus_tracker::{focus_tracker_is_coding, focus_tracker_window_info};
 
@@ -1393,6 +1394,7 @@ pub fn run() {
             voice::voice_cancel,
             voice::voice_toggle,
             voice::voice_status,
+            voice::voice_process_query,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();

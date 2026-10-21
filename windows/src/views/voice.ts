@@ -7,7 +7,7 @@
 
 import { h, svg } from "./dom";
 import { ICONS } from "./icons";
-import { Bridge, onEvent, type VoiceMeterPayload, type VoiceStatePayload, type VoiceTranscriptPayload } from "../core/bridge";
+import { Bridge, onEvent, type VoiceActionResult, type VoiceMeterPayload, type VoiceStatePayload, type VoiceTranscriptPayload } from "../core/bridge";
 import type { ViewActions, ViewHost } from "./views";
 
 export function buildVoiceView(actions: ViewActions): ViewHost {
@@ -59,6 +59,14 @@ export function buildVoiceView(actions: ViewActions): ViewHost {
   });
   const transcriptContainer = h("div", { class: "voice-transcript-container" }, transcriptText);
 
+  // ── Action Result Card (Phase 2) ──────────────────────────────────────────
+  const actionIcon = h("span", { class: "voice-action-icon", text: "⚡" });
+  const actionBadge = h("span", { class: "voice-action-badge fast", text: "⚡ Fast Path" });
+  const actionTiming = h("span", { class: "voice-action-timing", text: "" });
+  const actionHeader = h("div", { class: "voice-action-header" }, actionIcon, actionBadge, actionTiming);
+  const actionFeedback = h("div", { class: "voice-action-feedback", text: "" });
+  const actionCard = h("div", { class: "voice-action-card hidden" }, actionHeader, actionFeedback);
+
   // ── Footer hint bar ───────────────────────────────────────────────────────
   const hints = h(
     "div",
@@ -70,7 +78,7 @@ export function buildVoiceView(actions: ViewActions): ViewHost {
     h("span", { class: "voice-hint", text: "Enter to finish" })
   );
 
-  const card = h("div", { class: "card voice-card" }, header, waveContainer, transcriptContainer, hints);
+  const card = h("div", { class: "card voice-card" }, header, waveContainer, transcriptContainer, actionCard, hints);
   container.append(card);
 
   // ── State & Animation ─────────────────────────────────────────────────────
@@ -116,6 +124,11 @@ export function buildVoiceView(actions: ViewActions): ViewHost {
       transcriptText.className = "voice-transcript-text placeholder";
       transcriptText.textContent = "Say something in any language…";
       latencyBadge.classList.add("hidden");
+      actionCard.classList.add("hidden");
+      if (collapseTimeout) {
+        clearTimeout(collapseTimeout);
+        collapseTimeout = null;
+      }
     }
   });
 
@@ -147,6 +160,38 @@ export function buildVoiceView(actions: ViewActions): ViewHost {
     if (payload.latencyMs != null) {
       latencyBadge.textContent = `⚡ ${payload.latencyMs} ms`;
       latencyBadge.classList.remove("hidden");
+    }
+  });
+
+  let collapseTimeout: number | null = null;
+
+  void onEvent<VoiceActionResult>("voice-action-result", (res) => {
+    actionCard.classList.remove("hidden");
+    actionFeedback.textContent = res.feedback;
+
+    if (res.isFastPath) {
+      actionBadge.textContent = "⚡ Fast Path";
+      actionBadge.className = "voice-action-badge fast";
+      actionTiming.textContent = `${res.decisionLatencyMs} ms · total ${res.totalLatencyMs} ms`;
+    } else {
+      actionBadge.textContent = "🧠 Smart Path";
+      actionBadge.className = "voice-action-badge smart";
+      actionTiming.textContent = `${(res.decisionLatencyMs / 1000).toFixed(1)}s`;
+    }
+
+    if (res.clarification) {
+      actionIcon.textContent = "❓";
+      actionCard.className = "voice-action-card clarify";
+      statusLabel.textContent = "Clarification";
+    } else {
+      actionIcon.textContent = res.success ? "✨" : "⚠️";
+      actionCard.className = `voice-action-card ${res.success ? "success" : "failure"}`;
+      statusLabel.textContent = res.success ? "Executed" : "Failed";
+
+      if (collapseTimeout) clearTimeout(collapseTimeout);
+      collapseTimeout = window.setTimeout(() => {
+        actions.collapse();
+      }, 3500);
     }
   });
 

@@ -5057,3 +5057,80 @@ html[data-dir="rtl"] #views :is(.bubble, .reply .md-p, .reply .md-h, .reply .md-
 .voice-hint-dot {
   color: rgba(255, 255, 255, 0.2);
 }
+
+/* ── Voice Action Result Card (Phase 2) ────────────────────────────────── */
+.voice-action-card {
+  margin-top: 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.voice-action-card.hidden {
+  display: none;
+}
+
+.voice-action-card.success {
+  background: rgba(46, 204, 113, 0.08);
+  border-color: rgba(46, 204, 113, 0.25);
+}
+
+.voice-action-card.clarify {
+  background: rgba(243, 156, 18, 0.09);
+  border-color: rgba(243, 156, 18, 0.3);
+}
+
+.voice-action-card.failure {
+  background: rgba(231, 76, 60, 0.09);
+  border-color: rgba(231, 76, 60, 0.3);
+}
+
+.voice-action-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.voice-action-icon {
+  font-size: 14px;
+}
+
+.voice-action-badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+
+.voice-action-badge.fast {
+  background: rgba(46, 204, 113, 0.2);
+  color: #2ECC71;
+  border: 1px solid rgba(46, 204, 113, 0.35);
+}
+
+.voice-action-badge.smart {
+  background: rgba(155, 89, 182, 0.2);
+  color: #BB86FC;
+  border: 1px solid rgba(155, 89, 182, 0.35);
+}
+
+.voice-action-timing {
+  margin-left: auto;
+  font-size: 10px;
+  font-family: var(--font-mono, monospace);
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.voice-action-feedback {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.95);
+  line-height: 1.4;
+}
