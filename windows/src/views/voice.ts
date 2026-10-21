@@ -124,7 +124,7 @@ export function buildVoiceView(actions: ViewActions): ViewHost {
 
     switch (st) {
       case "listening":
-        statusLabel.textContent = "Listening…";
+        statusLabel.textContent = "Listening… (or say 'bye')";
         latencyBadge.classList.add("hidden");
         break;
       case "speaking":
@@ -255,11 +255,27 @@ export function buildVoiceView(actions: ViewActions): ViewHost {
       actionCard.className = `voice-action-card ${res.success ? "success" : "failure"}`;
       statusLabel.textContent = res.success ? "Executed" : "Failed";
 
-      if (collapseTimeout) clearTimeout(collapseTimeout);
-      collapseTimeout = window.setTimeout(() => {
-        actions.collapse();
-      }, res.canUndo ? 6000 : 3500);
+      if (res.intent.includes("DismissConversation")) {
+        if (collapseTimeout) clearTimeout(collapseTimeout);
+        collapseTimeout = window.setTimeout(() => {
+          actions.collapse();
+        }, 1200);
+      } else {
+        // Continuous session: keep island open for follow-up commands!
+        if (collapseTimeout) {
+          clearTimeout(collapseTimeout);
+          collapseTimeout = null;
+        }
+      }
     }
+  });
+
+  // End of conversation session (e.g. follow-up silence timeout)
+  void onEvent<void>("voice-conversation-ended", () => {
+    if (collapseTimeout) clearTimeout(collapseTimeout);
+    collapseTimeout = window.setTimeout(() => {
+      actions.collapse();
+    }, 1000);
   });
 
   // Keyboard navigation inside voice view

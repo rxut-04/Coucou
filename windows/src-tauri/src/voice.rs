@@ -61,6 +61,7 @@ pub struct VoiceManagerState {
     pub active_recording: Arc<Mutex<Option<ActiveRecording>>>,
     pub is_listening: Arc<AtomicBool>,
     pub is_speaking: Arc<AtomicBool>,
+    pub is_continuous_session: Arc<AtomicBool>,
     pub last_final_text: Arc<Mutex<String>>,
     pub last_latency_ms: Arc<Mutex<u64>>,
 }
@@ -76,6 +77,7 @@ impl Default for VoiceManagerState {
             active_recording: Arc::new(Mutex::new(None)),
             is_listening: Arc::new(AtomicBool::new(false)),
             is_speaking: Arc::new(AtomicBool::new(false)),
+            is_continuous_session: Arc::new(AtomicBool::new(false)),
             last_final_text: Arc::new(Mutex::new(String::new())),
             last_latency_ms: Arc::new(Mutex::new(0)),
         }
@@ -522,10 +524,12 @@ pub fn start_audio_capture_and_vad(
             pcm_buffer.clear();
             state_clone.is_listening.store(false, Ordering::SeqCst);
             state_clone.is_speaking.store(false, Ordering::SeqCst);
+            state_clone.is_continuous_session.store(false, Ordering::SeqCst);
             let _ = app_clone.emit("voice-state", VoiceStatePayload {
                 state: "idle".to_string(),
                 error: None,
             });
+            let _ = app_clone.emit("voice-conversation-ended", ());
             return;
         }
 
@@ -575,8 +579,20 @@ pub fn start_audio_capture_and_vad(
                     if !final_text.trim().is_empty() {
                         let app_intent = app_final.clone();
                         let text_intent = final_text.clone();
+                        let state_intent = state_final.clone();
                         tauri::async_runtime::spawn(async move {
-                            crate::voice_intent::process_voice_query(&app_intent, &text_intent).await;
+                            let res = crate::voice_intent::process_voice_query(&app_intent, &text_intent).await;
+                            if res.intent.contains("DismissConversation") {
+                                state_intent.is_continuous_session.store(false, Ordering::SeqCst);
+                                let _ = app_intent.emit("voice-conversation-ended", ());
+                            } else if state_intent.is_continuous_session.load(Ordering::SeqCst) {
+                                // Give TTS speech 1.3s to finish before microphone opens again
+                                tokio::time::sleep(Duration::from_millis(1300)).await;
+                                if state_intent.is_continuous_session.load(Ordering::SeqCst) {
+                                    crate::log::line("voice: continuous session active - re-opening follow-up listener");
+                                    let _ = start_voice_listening(app_intent, state_intent).await;
+                                }
+                            }
                         });
                     }
                 }
@@ -683,16 +699,20 @@ pub async fn start_voice_listening(
     // 1. Expand Island UI to "voice" view immediately (< 50 ms target)
     let _ = app.emit_to(crate::island::WINDOW_LABEL, "show-voice-view", ());
 
-    // 2. Ensure whisper-server is running
+    // 2. Mark continuous session active
+    state.is_continuous_session.store(true, Ordering::SeqCst);
+
+    // 3. Ensure whisper-server is running
     ensure_whisper_server(state.clone()).await?;
 
-    // 3. Start audio capture and VAD
+    // 4. Start audio capture and VAD
     start_audio_capture_and_vad(app, state)?;
 
     Ok(())
 }
 
 pub fn stop_voice_listening(state: &Arc<VoiceManagerState>) {
+    state.is_continuous_session.store(false, Ordering::SeqCst);
     let rec_guard = state.active_recording.lock().unwrap();
     if let Some(ref rec) = *rec_guard {
         rec.stop_signal.store(true, Ordering::SeqCst);
@@ -700,6 +720,7 @@ pub fn stop_voice_listening(state: &Arc<VoiceManagerState>) {
 }
 
 pub fn cancel_voice_listening(state: &Arc<VoiceManagerState>) {
+    state.is_continuous_session.store(false, Ordering::SeqCst);
     let rec_guard = state.active_recording.lock().unwrap();
     if let Some(ref rec) = *rec_guard {
         rec.cancel_signal.store(true, Ordering::SeqCst);
@@ -793,20 +814,16 @@ pub fn local_tts_speak(text: &str) {
 }
 
 /// Background passive wake-word detector.
-/// Uses PipeWire/PulseAudio capture + energy threshold + whisper slice matching.
+/// Uses continuous PipeWire capture + energy threshold + async whisper verification.
 /// Triggers when user says "Hey Siri", "Siri", "Hey Coucou", "Coucou", "Hey Mochi".
 pub fn spawn_wake_word_detector(app: AppHandle, state: Arc<VoiceManagerState>) {
     std::thread::spawn(move || {
         // Sleep on app boot to let whisper-server finish model loading
         std::thread::sleep(Duration::from_millis(2500));
 
-        loop {
-            // If active listening or recording is in progress, pause wake detection
-            if state.is_listening.load(Ordering::SeqCst) {
-                std::thread::sleep(Duration::from_millis(300));
-                continue;
-            }
+        let is_verifying = Arc::new(AtomicBool::new(false));
 
+        loop {
             // Spawn audio capture process
             let child_proc = Command::new("pw-record")
                 .args(["--rate", "16000", "--channels", "1", "--format", "s16", "-"])
@@ -853,9 +870,15 @@ pub fn spawn_wake_word_detector(app: AppHandle, state: Arc<VoiceManagerState>) {
             let mut noise_floor: f32 = 400.0;
             let mut speech_buffer: Vec<u8> = Vec::with_capacity(16000 * 2 * 3); // up to 3s
 
-            while !state.is_listening.load(Ordering::SeqCst) {
+            loop {
                 match stdout.read_exact(&mut frame_buf) {
                     Ok(_) => {
+                        // If active listening or an async verification is in progress, drain frames and discard
+                        if state.is_listening.load(Ordering::SeqCst) || is_verifying.load(Ordering::SeqCst) {
+                            speech_buffer.clear();
+                            continue;
+                        }
+
                         let mut sum_sq: f64 = 0.0;
                         for chunk in frame_buf.chunks_exact(2) {
                             let sample = i16::from_le_bytes([chunk[0], chunk[1]]) as f64;
@@ -868,7 +891,7 @@ pub fn spawn_wake_word_detector(app: AppHandle, state: Arc<VoiceManagerState>) {
                             if rms < noise_floor * 1.5 {
                                 noise_floor = noise_floor * 0.98 + rms * 0.02;
                             }
-                            let threshold = (noise_floor * 2.5).max(1200.0);
+                            let threshold = (noise_floor * 2.2).max(1100.0);
                             if rms > threshold {
                                 speech_buffer.extend_from_slice(&frame_buf);
                             }
@@ -876,17 +899,23 @@ pub fn spawn_wake_word_detector(app: AppHandle, state: Arc<VoiceManagerState>) {
                             // Accumulating speech audio
                             speech_buffer.extend_from_slice(&frame_buf);
 
-                            // Once ~1.6s of speech is collected (40 frames = 1.6s = 51200 bytes)
-                            if speech_buffer.len() >= 51200 {
+                            // Once ~1.4s of speech is collected (35 frames * 1280 = 44800 bytes)
+                            if speech_buffer.len() >= 44800 {
                                 let wav = pcm_to_wav(&speech_buffer);
                                 speech_buffer.clear();
 
-                                // Non-blocking check on inference mutex so we never block active recording
-                                if let Ok(_lock) = INFERENCE_MUTEX.try_lock() {
+                                if is_verifying.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
                                     let app_cl = app.clone();
                                     let state_cl = state.clone();
+                                    let verifying_flag = is_verifying.clone();
 
-                                    tauri::async_runtime::block_on(async {
+                                    tauri::async_runtime::spawn(async move {
+                                        // Acquire non-blocking inference lock
+                                        let Ok(_lock) = INFERENCE_MUTEX.try_lock() else {
+                                            verifying_flag.store(false, Ordering::SeqCst);
+                                            return;
+                                        };
+
                                         if let Ok(transcription) = transcribe_wav(VOICE_SERVER_PORT, &wav).await {
                                             let lower = transcription.to_lowercase();
                                             let wake_keywords = [
@@ -897,7 +926,6 @@ pub fn spawn_wake_word_detector(app: AppHandle, state: Arc<VoiceManagerState>) {
                                             if is_wake {
                                                 crate::log::line(format!("wake-word detected in speech: \"{}\"", lower));
 
-                                                // Check if user spoke command together with wake word
                                                 let mut stripped = lower.clone();
                                                 for k in &wake_keywords {
                                                     stripped = stripped.replace(k, "");
@@ -905,19 +933,26 @@ pub fn spawn_wake_word_detector(app: AppHandle, state: Arc<VoiceManagerState>) {
                                                 let stripped_trimmed = stripped.trim();
 
                                                 if stripped_trimmed.len() > 6 {
-                                                    // Drop down island
+                                                    // User spoke wake word + follow-up command in one breath
+                                                    let _ = app_cl.emit_to(crate::island::WINDOW_LABEL, "show-voice-view", ());
                                                     let _ = app_cl.emit("voice-state", VoiceStatePayload {
-                                                        state: "speaking".to_string(),
+                                                        state: "transcribing".to_string(),
                                                         error: None,
                                                     });
-                                                    // Process command immediately
+                                                    state_cl.is_continuous_session.store(true, Ordering::SeqCst);
                                                     let app_proc = app_cl.clone();
+                                                    let state_proc = state_cl.clone();
                                                     let cmd = lower.clone();
                                                     tauri::async_runtime::spawn(async move {
-                                                        crate::voice_intent::process_voice_query(&app_proc, &cmd).await;
+                                                        let _ = crate::voice_intent::process_voice_query(&app_proc, &cmd).await;
+                                                        tokio::time::sleep(Duration::from_millis(1300)).await;
+                                                        if state_proc.is_continuous_session.load(Ordering::SeqCst) {
+                                                            let _ = start_voice_listening(app_proc, state_proc).await;
+                                                        }
                                                     });
                                                 } else {
-                                                    // Greet user, drop down island, and begin active listening
+                                                    // Wake word alone: greeting + start listening
+                                                    let _ = app_cl.emit_to(crate::island::WINDOW_LABEL, "show-voice-view", ());
                                                     let _ = app_cl.emit("voice-state", VoiceStatePayload {
                                                         state: "speaking".to_string(),
                                                         error: None,
@@ -929,14 +964,16 @@ pub fn spawn_wake_word_detector(app: AppHandle, state: Arc<VoiceManagerState>) {
                                                     });
 
                                                     local_tts_speak("Hey sir, what's on your mind today?");
+                                                    state_cl.is_continuous_session.store(true, Ordering::SeqCst);
 
-                                                    // Give TTS time to speak greeting before starting mic listener
                                                     tokio::time::sleep(Duration::from_millis(1300)).await;
 
                                                     let _ = start_voice_listening(app_cl, state_cl).await;
                                                 }
                                             }
                                         }
+
+                                        verifying_flag.store(false, Ordering::SeqCst);
                                     });
                                 }
                             }

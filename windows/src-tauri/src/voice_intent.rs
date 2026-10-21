@@ -6,6 +6,7 @@
 // - Clarification mechanism when speech is ambiguous.
 
 use std::process::Command;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -45,6 +46,10 @@ pub enum VoiceIntent {
     ConfirmAction { confirmed: bool },
     Undo,
     Clarify { question: String },
+    InspectScreen,
+    CheckOpenApp { query: String },
+    WindowControl { action: String }, // "maximize", "minimize", "refresh"
+    DismissConversation,
     FollowUp { action: String, index: Option<usize> },
     Compound { actions: Vec<VoiceIntent> },
     Unknown { raw: String },
@@ -447,6 +452,89 @@ pub fn fast_path_classify(raw_query: &str) -> Option<VoiceIntent> {
         if q == u {
             return Some(VoiceIntent::Undo);
         }
+    }
+
+    // ── 0b. DISMISSAL / END CONTINUOUS CONVERSATION ────────────────────────
+    let dismiss_words = [
+        "bye", "goodbye", "thank you", "thanks", "that's all", "thats all", "sleep", "stop listening",
+        "close island", "shut up", "bye bye", "see you", "dismiss",
+        "alvida", "chalo bye", "shukriya", "dhanyawad", "bas itna hi", "kuch nahi",
+        "au revoir", "merci", "a plus", "c'est tout",
+        "adios", "gracias", "hasta luego", "es todo",
+    ];
+    for d in dismiss_words {
+        if q == d 
+            || q.starts_with(d) 
+            || q.ends_with(d) 
+            || q.contains("that's all") 
+            || q.contains("thats all") 
+            || q.contains("stop listening") {
+            return Some(VoiceIntent::DismissConversation);
+        }
+    }
+
+    // ── 0c. SCREEN AWARENESS & ACTIVE WINDOW INSPECTION ────────────────────
+    let screen_patterns = [
+        "which screen am i on", "which screen am i using", "what screen is this", "what screen am i on",
+        "what screen am i looking at", "which display is this", "which monitor is this",
+        "what is on my screen", "what is on screen", "what's on my screen", "whats on my screen",
+        "what is open on my screen", "what window is this", "what app is this", "what am i looking at",
+        "current screen", "active screen", "screen status",
+        "konse screen par hu", "screen par kya hai", "kya khula hai", "konsa window hai",
+        "sur quel ecran", "quel ecran", "qu'est-ce qui est ouvert", "qu'est ce qui est sur mon ecran",
+        "en que pantalla estoy", "que hay en mi pantalla", "que ventana es esta",
+    ];
+    for s in screen_patterns {
+        if q == s || q.starts_with(s) {
+            return Some(VoiceIntent::InspectScreen);
+        }
+    }
+
+    // Check if a specific app is open on screen
+    if q.starts_with("do you see my open ")
+        || q.starts_with("do you see open ")
+        || q.starts_with("do you see ")
+        || (q.starts_with("is ") && (q.ends_with(" open") || q.ends_with(" running") || q.ends_with(" khula hai")))
+        || (q.starts_with("kya ") && (q.ends_with(" open hai") || q.ends_with(" khula hai")))
+    {
+        let clean = q
+            .replace("do you see my open", "")
+            .replace("do you see open", "")
+            .replace("do you see", "")
+            .replace("is", "")
+            .replace("kya", "")
+            .replace("open hai", "")
+            .replace("khula hai", "")
+            .replace("open", "")
+            .replace("running", "")
+            .trim()
+            .to_string();
+        if !clean.is_empty() {
+            return Some(VoiceIntent::CheckOpenApp { query: clean });
+        }
+    }
+
+    // Contextual Window Controls (Maximize, Minimize, Refresh, Close Current)
+    let max_words = ["maximize this", "maximize window", "maximize", "bada karo", "fullscreen", "plein ecran", "maximizar"];
+    for m in max_words {
+        if q == m || q.starts_with(m) {
+            return Some(VoiceIntent::WindowControl { action: "maximize".into() });
+        }
+    }
+    let min_words = ["minimize this", "minimize window", "minimize", "chhota karo", "chota karo", "reduire", "minimizar"];
+    for m in min_words {
+        if q == m || q.starts_with(m) {
+            return Some(VoiceIntent::WindowControl { action: "minimize".into() });
+        }
+    }
+    let ref_words = ["refresh this", "refresh page", "reload this", "reload page", "refresh", "reload", "refresh karo", "reload karo", "rafraichir", "recargar"];
+    for r in ref_words {
+        if q == r || q.starts_with(r) {
+            return Some(VoiceIntent::WindowControl { action: "refresh".into() });
+        }
+    }
+    if q == "close this" || q == "close this window" || q == "close current window" || q == "close window" || q == "band karo ye" || q == "is window ko band karo" || q == "ferme la fenetre" || q == "ferme cette fenetre" || q == "cierra la ventana" {
+        return Some(VoiceIntent::CloseWindow { target: None });
     }
 
     // Take a note (Tier 2)
@@ -1163,7 +1251,11 @@ You must return a single JSON object matching one of the following schemas:
 15. {{"action": "show_score"}}
 16. {{"action": "open_chat"}}
 17. {{"action": "system_control", "control": "lock"|"screenshot"|"brightness-up"|"brightness-down"|"brightness-set:<number>"}}
-18. {{"action": "clarify", "question": "<concise clarifying question>"}}
+18. {{"action": "inspect_screen"}}
+19. {{"action": "check_open_app", "query": "<app_name>"}}
+20. {{"action": "window_control", "control": "maximize"|"minimize"|"refresh"}}
+21. {{"action": "dismiss"}}
+22. {{"action": "clarify", "question": "<concise clarifying question>"}}
 
 Rules:
 - Output pure JSON only. Do not include markdown code ticks, greetings, or explanations.
@@ -1280,6 +1372,16 @@ Rules:
                     let control = val.get("control").and_then(|c| c.as_str()).unwrap_or("lock").to_string();
                     return Ok(VoiceIntent::SystemControl { action: control });
                 }
+                "inspect_screen" => return Ok(VoiceIntent::InspectScreen),
+                "check_open_app" => {
+                    let query = val.get("query").and_then(|q| q.as_str()).unwrap_or("app").to_string();
+                    return Ok(VoiceIntent::CheckOpenApp { query });
+                }
+                "window_control" => {
+                    let control = val.get("control").and_then(|c| c.as_str()).unwrap_or("maximize").to_string();
+                    return Ok(VoiceIntent::WindowControl { action: control });
+                }
+                "dismiss" => return Ok(VoiceIntent::DismissConversation),
                 "clarify" => {
                     let question = val.get("question").and_then(|q| q.as_str()).unwrap_or("Could you please clarify?").to_string();
                     return Ok(VoiceIntent::Clarify { question });
@@ -1637,6 +1739,71 @@ pub fn execute_intent(app: &AppHandle, intent: &VoiceIntent) -> (bool, String) {
                 feedbacks.push(fb);
             }
             (all_ok, feedbacks.join(" & "))
+        }
+
+        VoiceIntent::InspectScreen => {
+            let focus_state = app.state::<Arc<FocusTrackerState>>();
+            let windows = focus_state.windows.lock().unwrap().clone();
+            let active = windows.iter().find(|w| w.active);
+            let screen = crate::island::screen_info(app, "primary");
+            let screen_desc = format!("Screen {:.0}x{:.0}", screen.width, screen.height);
+
+            if let Some(w) = active {
+                let app_name = if !w.resource_class.is_empty() { &w.resource_class } else { "Application" };
+                let title = if !w.caption.is_empty() { &w.caption } else { "Untitled" };
+                (true, format!("You are on your main display ({}). Currently looking at {}: \"{}\"", screen_desc, app_name, title))
+            } else {
+                (true, format!("You are on your main display ({}). No active window is focused.", screen_desc))
+            }
+        }
+
+        VoiceIntent::CheckOpenApp { query } => {
+            let focus_state = app.state::<Arc<FocusTrackerState>>();
+            let windows = focus_state.windows.lock().unwrap().clone();
+            let q_lower = query.to_lowercase();
+            let matched = windows.iter().find(|w| {
+                w.caption.to_lowercase().contains(&q_lower)
+                    || w.resource_class.to_lowercase().contains(&q_lower)
+            });
+            if let Some(w) = matched {
+                (true, format!("Yes, I see {} open: \"{}\"", w.resource_class, w.caption))
+            } else {
+                (true, format!("No, I don't see \"{}\" open on your screens right now.", query))
+            }
+        }
+
+        VoiceIntent::WindowControl { action } => {
+            match action.as_str() {
+                "maximize" => {
+                    let _ = Command::new("qdbus")
+                        .args(["org.kde.kglobalaccel", "/component/kwin", "invokeShortcut", "Window Maximize"])
+                        .status();
+                    (true, "Maximized active window".to_string())
+                }
+                "minimize" => {
+                    let _ = Command::new("qdbus")
+                        .args(["org.kde.kglobalaccel", "/component/kwin", "invokeShortcut", "Window Minimize"])
+                        .status();
+                    (true, "Minimized active window".to_string())
+                }
+                "refresh" => {
+                    let _ = Command::new("xdotool").args(["key", "F5"]).status();
+                    (true, "Refreshed current view".to_string())
+                }
+                _ => (false, format!("Unknown window control: {}", action)),
+            }
+        }
+
+        VoiceIntent::DismissConversation => {
+            if let Some(voice_state) = app.try_state::<Arc<crate::voice::VoiceManagerState>>() {
+                voice_state.is_continuous_session.store(false, Ordering::SeqCst);
+            }
+            let _ = app.emit("voice-state", crate::voice::VoiceStatePayload {
+                state: "idle".to_string(),
+                error: None,
+            });
+            let _ = app.emit("voice-conversation-ended", ());
+            (true, "Goodbye sir! Let me know if you need anything else.".to_string())
         }
 
         VoiceIntent::FollowUp { action, .. } => {
@@ -2100,5 +2267,29 @@ mod tests {
         if let Some(id) = v_id {
             assert_eq!(id.len(), 11);
         }
+
+        // 8. Screen Awareness & Active Window Inspection
+        assert_eq!(fast_path_classify("which screen am i on"), Some(VoiceIntent::InspectScreen));
+        assert_eq!(fast_path_classify("what is on my screen"), Some(VoiceIntent::InspectScreen));
+        assert_eq!(fast_path_classify("what am i looking at"), Some(VoiceIntent::InspectScreen));
+        assert_eq!(fast_path_classify("konse screen par hu"), Some(VoiceIntent::InspectScreen));
+
+        // 9. Check Open App
+        assert_eq!(fast_path_classify("do you see my open youtube"), Some(VoiceIntent::CheckOpenApp { query: "youtube".into() }));
+        assert_eq!(fast_path_classify("is vs code open"), Some(VoiceIntent::CheckOpenApp { query: "vs code".into() }));
+        assert_eq!(fast_path_classify("kya terminal khula hai"), Some(VoiceIntent::CheckOpenApp { query: "terminal".into() }));
+
+        // 10. Window Controls & Contextual Close
+        assert_eq!(fast_path_classify("maximize this"), Some(VoiceIntent::WindowControl { action: "maximize".into() }));
+        assert_eq!(fast_path_classify("minimize window"), Some(VoiceIntent::WindowControl { action: "minimize".into() }));
+        assert_eq!(fast_path_classify("refresh page"), Some(VoiceIntent::WindowControl { action: "refresh".into() }));
+        assert_eq!(fast_path_classify("close this window"), Some(VoiceIntent::CloseWindow { target: None }));
+        assert_eq!(fast_path_classify("close current window"), Some(VoiceIntent::CloseWindow { target: None }));
+
+        // 11. Dismissal / End Conversation
+        assert_eq!(fast_path_classify("bye"), Some(VoiceIntent::DismissConversation));
+        assert_eq!(fast_path_classify("thank you"), Some(VoiceIntent::DismissConversation));
+        assert_eq!(fast_path_classify("that's all"), Some(VoiceIntent::DismissConversation));
+        assert_eq!(fast_path_classify("alvida"), Some(VoiceIntent::DismissConversation));
     }
 }
