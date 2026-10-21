@@ -4864,15 +4864,19 @@ html[data-dir="rtl"] #views :is(.bubble, .reply .md-p, .reply .md-h, .reply .md-
 }
 
 .voice-card {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 16px 20px;
+  gap: 10px;
+  padding: 14px 20px 14px 116px;
   background: rgba(15, 23, 42, 0.88);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 16px;
   backdrop-filter: blur(20px);
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5);
+  box-sizing: border-box;
+  height: 100%;
 }
 
 .voice-header {

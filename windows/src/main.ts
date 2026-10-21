@@ -109,6 +109,13 @@ async function main() {
     if (windows) State.applyDesktopWindows(windows);
   });
 
+  await onEvent<{ state: string }>("voice-state", ({ state }) => {
+    if (state === "listening" || state === "speaking") {
+      setPaused(false);
+      island.expand("voice");
+    }
+  });
+
   // The settings window writes preferences; apply them here without a restart.
   await onEvent<Settings>("settings-changed", (s) => {
     const previousMain = State.mainPillId;

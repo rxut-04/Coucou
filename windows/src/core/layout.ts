@@ -95,7 +95,7 @@ export const VIEW_LAYOUTS: Record<IslandViewName, ViewLayout> = {
   // to the shared image.
   recap: { height: 196, botX: 68, botY: null, botDiameter: 58, agentMode: "column" },
   wardrobe: { height: 176, botX: 68, botY: null, botDiameter: 58, agentMode: "none" },
-  voice: { height: 188, botX: 68, botY: null, botDiameter: 56, agentMode: "column" },
+  voice: { height: 220, botX: 68, botY: null, botDiameter: 56, agentMode: "column" },
 };
 
 // The upload views above are only the fallback geometry. Once a file is actually
