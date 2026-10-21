@@ -787,8 +787,112 @@ pub async fn voice_process_query(
     Ok(crate::voice_intent::process_voice_query(&app, &query).await)
 }
 
-/// Speaks text locally on Linux using speech-dispatcher (spd-say) with fallback to espeak-ng / espeak.
-/// Completely local, 0 cloud dependencies, zero external network.
+fn get_elevenlabs_config() -> Option<(String, String)> {
+    if let Ok(key) = std::env::var("ELEVENLABS_API_KEY") {
+        if !key.trim().is_empty() {
+            let voice_id = std::env::var("ELEVENLABS_VOICE_ID")
+                .unwrap_or_else(|_| "MClEFoImJXBTgLwdLI5n".to_string());
+            return Some((key.trim().to_string(), voice_id));
+        }
+    }
+
+    let candidates = [
+        ".env.local",
+        ".env",
+        "/run/media/om-raut/New Volume/COUCOU/coucou_old/windows/.env.local",
+    ];
+    for path in &candidates {
+        if let Ok(content) = std::fs::read_to_string(path) {
+            let mut key = None;
+            let mut voice = None;
+            for line in content.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with('#') || trimmed.is_empty() {
+                    continue;
+                }
+                if let Some((k, v)) = trimmed.split_once('=') {
+                    let k = k.trim();
+                    let v = v.trim().trim_matches('"').trim_matches('\'');
+                    if k == "ELEVENLABS_API_KEY" && !v.is_empty() {
+                        key = Some(v.to_string());
+                    } else if k == "ELEVENLABS_VOICE_ID" && !v.is_empty() {
+                        voice = Some(v.to_string());
+                    }
+                }
+            }
+            if let Some(k) = key {
+                return Some((k, voice.unwrap_or_else(|| "MClEFoImJXBTgLwdLI5n".to_string())));
+            }
+        }
+    }
+
+    None
+}
+
+async fn try_speak_elevenlabs(text: &str, api_key: &str, voice_id: &str) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()?;
+
+    // Voice settings tuned for a soft, lifelike, expressive tone
+    let payload = serde_json::json!({
+        "text": text,
+        "model_id": "eleven_turbo_v2_5",
+        "voice_settings": {
+            "stability": 0.48,
+            "similarity_boost": 0.80,
+            "style": 0.25,
+            "use_speaker_boost": true
+        }
+    });
+
+    let primary_url = format!("https://api.elevenlabs.io/v1/text-to-speech/{}?output_format=mp3_44100_128", voice_id);
+    let mut resp = client.post(&primary_url)
+        .header("xi-api-key", api_key)
+        .header("Content-Type", "application/json")
+        .json(&payload)
+        .send()
+        .await?;
+
+    // If 402 Payment Required (library voice restricted on free tier), fall back to soft female voice Lily (pFZP5JQG7iQjIQuC4Bku)
+    if resp.status().as_u16() == 402 && voice_id != "pFZP5JQG7iQjIQuC4Bku" {
+        let fallback_url = "https://api.elevenlabs.io/v1/text-to-speech/pFZP5JQG7iQjIQuC4Bku?output_format=mp3_44100_128";
+        resp = client.post(fallback_url)
+            .header("xi-api-key", api_key)
+            .header("Content-Type", "application/json")
+            .json(&payload)
+            .send()
+            .await?;
+    }
+
+    if !resp.status().is_success() {
+        return Ok(false);
+    }
+
+    let bytes = resp.bytes().await?;
+    if bytes.is_empty() {
+        return Ok(false);
+    }
+
+    let tmp_path = format!(
+        "/tmp/coucou_tts_{}.mp3",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    );
+    std::fs::write(&tmp_path, &bytes)?;
+
+    let status = Command::new("pw-play")
+        .arg(&tmp_path)
+        .status()
+        .or_else(|_| Command::new("paplay").arg(&tmp_path).status());
+
+    let _ = std::fs::remove_file(&tmp_path);
+    Ok(status.map(|s| s.success()).unwrap_or(false))
+}
+
+/// Speaks text with human-level natural audio using ElevenLabs AI Voice (with local fallback to spd-say).
 pub fn local_tts_speak(text: &str) {
     let clean: String = text
         .chars()
@@ -799,7 +903,14 @@ pub fn local_tts_speak(text: &str) {
         return;
     }
 
-    std::thread::spawn(move || {
+    tauri::async_runtime::spawn(async move {
+        if let Some((api_key, voice_id)) = get_elevenlabs_config() {
+            if let Ok(true) = try_speak_elevenlabs(&trimmed, &api_key, &voice_id).await {
+                return;
+            }
+        }
+
+        // Fallback to local system TTS
         let status = Command::new("spd-say")
             .args(["-t", "female1", "-r", "8", &trimmed])
             .status();
