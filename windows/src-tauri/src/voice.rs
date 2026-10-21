@@ -248,6 +248,173 @@ fn get_http_client() -> &'static reqwest::Client {
     })
 }
 
+fn get_wispr_flow_api_key() -> Option<String> {
+    if let Ok(key) = std::env::var("WISPR_FLOW_API_KEY").or_else(|_| std::env::var("FLOW_API_KEY")) {
+        if !key.trim().is_empty() {
+            return Some(key.trim().to_string());
+        }
+    }
+
+    let candidates = [
+        ".env.local",
+        ".env",
+        "/run/media/om-raut/New Volume/COUCOU/coucou_old/windows/.env.local",
+    ];
+    for path in &candidates {
+        if let Ok(content) = std::fs::read_to_string(path) {
+            for line in content.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with('#') || trimmed.is_empty() {
+                    continue;
+                }
+                if let Some((k, v)) = trimmed.split_once('=') {
+                    let k = k.trim();
+                    let v = v.trim().trim_matches('"').trim_matches('\'');
+                    if (k == "WISPR_FLOW_API_KEY" || k == "FLOW_API_KEY") && !v.is_empty() {
+                        return Some(v.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Transcribes audio using Wispr Flow API (https://api-docs.wisprflow.ai/rest_api_transcribe)
+pub async fn try_transcribe_wispr_flow(
+    wav_bytes: &[u8],
+    api_key: &str,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(8))
+        .build()?;
+
+    let b64_audio = crate::claude::base64_for(wav_bytes);
+
+    let payload = serde_json::json!({
+        "audio": b64_audio,
+        "language": ["en"],
+        "context": {
+            "app": {
+                "type": "ai",
+                "name": "Coucou"
+            },
+            "dictionary_context": [
+                "Coucou", "Siddhu Moosewala", "Moosewala", "YouTube", "Brave", "VS Code", "Wayland", "KDE",
+                "maximize", "minimize", "refresh", "screenshot", "terminal", "which screen am I on"
+            ]
+        }
+    });
+
+    let endpoints = [
+        "https://platform-api.wisprflow.ai/api",
+        "https://api.flow.wispr.ai/api",
+    ];
+
+    for url in &endpoints {
+        let resp = client.post(*url)
+            .header("Authorization", format!("Bearer {}", api_key))
+            .header("x-api-key", api_key)
+            .header("Content-Type", "application/json")
+            .json(&payload)
+            .send()
+            .await;
+
+        if let Ok(res) = resp {
+            if res.status().is_success() {
+                let json: serde_json::Value = res.json().await?;
+                if let Some(text) = json.get("text").and_then(|t| t.as_str()) {
+                    let trimmed = text.trim();
+                    if !trimmed.is_empty() {
+                        return Ok(trimmed.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    Err("Wispr Flow API request failed or returned empty".into())
+}
+
+/// Transcribes audio using ElevenLabs Scribe STT
+pub async fn try_transcribe_elevenlabs_scribe(
+    wav_bytes: &[u8],
+    api_key: &str,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(8))
+        .build()?;
+
+    let boundary = "----CoucouElevenLabsBoundary7192";
+    let mut body = Vec::new();
+
+    let file_header = format!(
+        "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"voice.wav\"\r\nContent-Type: audio/wav\r\n\r\n"
+    );
+    body.extend_from_slice(file_header.as_bytes());
+    body.extend_from_slice(wav_bytes);
+
+    let model_part = format!(
+        "\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"model_id\"\r\n\r\nscribe_v1\r\n--{boundary}--\r\n"
+    );
+    body.extend_from_slice(model_part.as_bytes());
+
+    let resp = client.post("https://api.elevenlabs.io/v1/speech-to-text")
+        .header("xi-api-key", api_key)
+        .header("Content-Type", format!("multipart/form-data; boundary={boundary}"))
+        .body(body)
+        .send()
+        .await?;
+
+    if resp.status().is_success() {
+        let json: serde_json::Value = resp.json().await?;
+        if let Some(text) = json.get("text").and_then(|t| t.as_str()) {
+            let trimmed = text.trim();
+            if !trimmed.is_empty() {
+                return Ok(trimmed.to_string());
+            }
+        }
+    }
+
+    Err("ElevenLabs Scribe STT request failed".into())
+}
+
+/// Multi-tier smart speech transcription:
+/// 1. Wispr Flow API (if WISPR_FLOW_API_KEY is configured in .env.local)
+/// 2. ElevenLabs Scribe STT (if ELEVENLABS_API_KEY is configured in .env.local)
+/// 3. Local Whisper server with domain vocabulary prompt
+pub async fn transcribe_audio_smart(wav_bytes: &[u8]) -> Result<String, String> {
+    if wav_bytes.len() <= 44 {
+        return Ok(String::new());
+    }
+
+    // 1. Wispr Flow API
+    if let Some(wispr_key) = get_wispr_flow_api_key() {
+        if let Ok(text) = try_transcribe_wispr_flow(wav_bytes, &wispr_key).await {
+            let trimmed = text.trim().to_string();
+            if !trimmed.is_empty() {
+                crate::log::line(format!("voice STT: transcribed via Wispr Flow: \"{}\"", trimmed));
+                return Ok(trimmed);
+            }
+        }
+    }
+
+    // 2. ElevenLabs Scribe STT
+    if let Some((eleven_key, _)) = get_elevenlabs_config() {
+        if let Ok(text) = try_transcribe_elevenlabs_scribe(wav_bytes, &eleven_key).await {
+            let trimmed = text.trim().to_string();
+            if !trimmed.is_empty() {
+                crate::log::line(format!("voice STT: transcribed via ElevenLabs Scribe: \"{}\"", trimmed));
+                return Ok(trimmed);
+            }
+        }
+    }
+
+    // 3. Fallback: local whisper-server with prompt context
+    transcribe_wav(VOICE_SERVER_PORT, wav_bytes).await
+}
+
 /// Sends an in-memory WAV buffer to the whisper server and extracts clean text with retry logic.
 pub async fn transcribe_wav(
     port: u16,
@@ -269,9 +436,16 @@ pub async fn transcribe_wav(
 
     // Explicit temperature=0.0 parameter to prevent hallucinated lyrics/background music
     let temp_part = format!(
-        "\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"temperature\"\r\n\r\n0.0\r\n--{boundary}--\r\n"
+        "\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"temperature\"\r\n\r\n0.0"
     );
     body.extend_from_slice(temp_part.as_bytes());
+
+    // Prompt part to guide Whisper with Coucou domain vocabulary & app context
+    let prompt_text = "Coucou voice assistant, YouTube, Brave, VS Code, screen, window, Sidhu Moosewala, songs, music, browser, terminal, close, maximize, minimize, refresh.";
+    let prompt_part = format!(
+        "\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"prompt\"\r\n\r\n{prompt_text}\r\n--{boundary}--\r\n"
+    );
+    body.extend_from_slice(prompt_part.as_bytes());
 
     let url = format!("http://{}:{}/inference", VOICE_SERVER_HOST, port);
     let client = get_http_client();
@@ -553,7 +727,7 @@ pub fn start_audio_capture_and_vad(
         tauri::async_runtime::spawn(async move {
             // Acquire inference lock to guarantee whisper-server is exclusively ours
             let _lock = INFERENCE_MUTEX.lock().await;
-            match transcribe_wav(VOICE_SERVER_PORT, &final_wav).await {
+            match transcribe_audio_smart(&final_wav).await {
                 Ok(final_text) => {
                     let latency_ms = silence_t0.elapsed().as_millis() as u64;
                     crate::log::line(format!(
