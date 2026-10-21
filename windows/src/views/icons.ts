@@ -64,4 +64,8 @@ export const ICONS = {
   mediaNext: "M16.3 5.5h2.2v13h-2.2v-13zM5.5 5.5 15.3 12 5.5 18.5v-13z",
   // bolt.fill
   bolt: "M13.2 2.4 5.6 13.2h5.5L9.8 21.6l8.6-11.2h-5.6l.4-8z",
+  // mic (microphone)
+  mic: "M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z M19 10v2a7 7 0 0 1-14 0v-2 M12 19v4 M8 23h8",
+  // close / xmark alias
+  close: "M6.4 5 12 10.6 17.6 5 19 6.4 13.4 12 19 17.6 17.6 19 12 13.4 6.4 19 5 17.6 10.6 12 5 6.4 6.4 5z",
 } as const;

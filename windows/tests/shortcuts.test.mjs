@@ -16,7 +16,7 @@ import { DEFAULT_SETTINGS, State } from "../src/core/state.ts";
 
 const MAC_IDS = [
   "toggleIsland", "openChat", "goToAlert", "jumpToTerminal", "attachFrontWindow",
-  "nextPill", "prevPill", "muteToggle", "desktopToggle", "wardrobeToggle",
+  "nextPill", "prevPill", "muteToggle", "desktopToggle", "wardrobeToggle", "toggleVoice",
 ];
 
 // ── Defaults (testDefaultsExhaustive, testAllDefaultsHaveModifier, testNoDefaultDuplicates) ──
@@ -71,7 +71,7 @@ test("only the island toggle is off by default; the two not ported yet are reser
     assert.equal(d.ported, !["attachFrontWindow", "desktopToggle"].includes(d.id), d.id);
   }
   assert.deepEqual(activeKeys({}).map(([id]) => id), [
-    "openChat", "goToAlert", "jumpToTerminal", "nextPill", "prevPill", "muteToggle", "wardrobeToggle",
+    "openChat", "goToAlert", "jumpToTerminal", "nextPill", "prevPill", "muteToggle", "wardrobeToggle", "toggleVoice",
   ]);
 });
 

@@ -110,6 +110,18 @@ export function runGlobalShortcut(host: ShortcutHost, action: string, resume: ()
       break;
     }
 
+    case "toggleVoice":
+      resume();
+      if (State.mode === "expanded" && State.view === "voice") {
+        void Bridge.voiceCancel();
+        host.collapse();
+      } else {
+        host.alert("voice");
+        host.takeKeyboard();
+        void Bridge.voiceStart();
+      }
+      break;
+
     // wardrobeToggle never comes this way (Rust sends `open-wardrobe`), and
     // attachFrontWindow / desktopToggle aren't in this version.
     default:
@@ -160,6 +172,11 @@ export function registerShortcutHandlers(host: ShortcutHost, resume: () => void)
   void onEvent<null>("open-wardrobe", () => {
     resume();
     host.wardrobeAnywhere();
+  });
+  void onEvent<null>("show-voice-view", () => {
+    resume();
+    host.alert("voice");
+    host.takeKeyboard();
   });
 
   // Capture phase: the chat field stops its own key events from bubbling.

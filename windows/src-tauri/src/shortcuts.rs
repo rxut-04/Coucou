@@ -66,6 +66,7 @@ pub const ACTIONS: &[ActionDef] = &[
     // Mochi on the desktop is not in this version.
     action("desktopToggle", "Ctrl+Alt+D", true, false),
     action("wardrobeToggle", "Ctrl+Alt+G", true, true),
+    action("toggleVoice", "Ctrl+Alt+V", true, true),
 ];
 
 pub fn find(id: &str) -> Option<&'static ActionDef> {
@@ -272,6 +273,9 @@ pub fn dispatch<R: Runtime>(app: &AppHandle<R>, action: &str) {
     crate::log::line(format!("shortcut {action}"));
     if action == "wardrobeToggle" {
         let _ = app.emit_to(WINDOW_LABEL, "open-wardrobe", ());
+    } else if action == "toggleVoice" {
+        let _ = app.emit_to(WINDOW_LABEL, "show-voice-view", ());
+        let _ = app.emit_to(WINDOW_LABEL, "shortcut", action.to_string());
     } else {
         let _ = app.emit_to(WINDOW_LABEL, "shortcut", action.to_string());
     }

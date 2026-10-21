@@ -311,7 +311,37 @@ export const Bridge = {
   mediaStatusGet: () => call<MediaStatus>("media_status_get"),
   mediaControl: (action: string, value?: number) =>
     call<MediaStatus>("media_control", { action, value }),
+
+  // ── Voice Assistant Pipeline (voice.rs) ──────────────────────────────────
+  voiceStart: () => call<void>("voice_start"),
+  voiceStop: () => call<void>("voice_stop"),
+  voiceCancel: () => call<void>("voice_cancel"),
+  voiceToggle: () => call<boolean>("voice_toggle"),
+  voiceStatus: () => call<VoiceStatus>("voice_status"),
 };
+
+export interface VoiceMeterPayload {
+  level: number;
+  speaking: boolean;
+}
+
+export interface VoiceStatePayload {
+  state: "idle" | "listening" | "speaking" | "transcribing";
+  error?: string | null;
+}
+
+export interface VoiceTranscriptPayload {
+  text: string;
+  isFinal: boolean;
+  latencyMs?: number | null;
+}
+
+export interface VoiceStatus {
+  listening: boolean;
+  speaking: boolean;
+  lastTranscript: string;
+  latencyMs: number;
+}
 
 export interface BatteryStatus {
   hasBattery: boolean;

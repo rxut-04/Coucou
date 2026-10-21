@@ -40,6 +40,7 @@ mod db;
 mod engine;
 mod health_mode;
 mod system_media;
+mod voice;
 
 use focus_tracker::{focus_tracker_is_coding, focus_tracker_window_info};
 
@@ -1252,6 +1253,7 @@ pub fn run() {
         .manage(Arc::new(browser_intent::BrowserIntentState::default()))
         .manage(Arc::new(agent_monitor::AgentMonitorState::new()))
         .manage(Arc::new(health_mode::HealthModeState::new()))
+        .manage(Arc::new(voice::VoiceManagerState::default()))
         .manage(db::DbState::new(db::default_db_path()))
         .manage(Pending::default())
         .manage(Chat::default())
@@ -1386,6 +1388,11 @@ pub fn run() {
             system_media::weather_status_get,
             system_media::media_status_get,
             system_media::media_control,
+            voice::voice_start,
+            voice::voice_stop,
+            voice::voice_cancel,
+            voice::voice_toggle,
+            voice::voice_status,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -1404,6 +1411,7 @@ pub fn run() {
                 let monitor_state = handle.state::<Arc<agent_monitor::AgentMonitorState>>().inner().clone();
                 agent_monitor::spawn_agent_monitor(handle.clone(), monitor_state);
                 health_mode::start(handle.clone());
+                voice::start(handle.clone());
             }
 
             if let Some(win) = island::window(&handle) {
