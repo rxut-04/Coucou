@@ -330,6 +330,9 @@ export interface VoiceActionResult {
   decisionLatencyMs: number;
   totalLatencyMs: number;
   clarification?: string | null;
+  tier?: string;
+  canUndo?: boolean;
+  requiresConfirmation?: boolean;
 }
 
 export interface VoiceMeterPayload {

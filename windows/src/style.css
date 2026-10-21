@@ -5134,3 +5134,99 @@ html[data-dir="rtl"] #views :is(.bubble, .reply .md-p, .reply .md-h, .reply .md-
   color: rgba(255, 255, 255, 0.95);
   line-height: 1.4;
 }
+
+.voice-action-card.sensitive {
+  background: rgba(230, 126, 34, 0.12);
+  border-color: rgba(230, 126, 34, 0.45);
+}
+
+.voice-tier-badge {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.voice-tier-badge.hidden {
+  display: none;
+}
+
+.voice-tier-badge.tier-1 {
+  background: rgba(46, 204, 113, 0.15);
+  color: #2ECC71;
+  border: 1px solid rgba(46, 204, 113, 0.25);
+}
+
+.voice-tier-badge.tier-2 {
+  background: rgba(142, 68, 173, 0.2);
+  color: #c084fc;
+  border: 1px solid rgba(142, 68, 173, 0.35);
+}
+
+.voice-tier-badge.tier-3 {
+  background: rgba(231, 76, 60, 0.2);
+  color: #f87171;
+  border: 1px solid rgba(231, 76, 60, 0.4);
+}
+
+.voice-action-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.voice-action-controls.hidden {
+  display: none;
+}
+
+.voice-ctrl-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: rgba(255, 255, 255, 0.9);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  transition: all 0.15s ease;
+}
+
+.voice-ctrl-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.voice-confirm-btn {
+  background: rgba(46, 204, 113, 0.25);
+  border-color: rgba(46, 204, 113, 0.5);
+  color: #55efc4;
+}
+
+.voice-confirm-btn:hover {
+  background: rgba(46, 204, 113, 0.38);
+}
+
+.voice-cancel-btn {
+  background: rgba(231, 76, 60, 0.2);
+  border-color: rgba(231, 76, 60, 0.4);
+  color: #ff7675;
+}
+
+.voice-cancel-btn:hover {
+  background: rgba(231, 76, 60, 0.32);
+}
+
+.voice-undo-btn {
+  background: rgba(142, 68, 173, 0.22);
+  border-color: rgba(142, 68, 173, 0.45);
+  color: #d8b4fe;
+}
+
+.voice-undo-btn:hover {
+  background: rgba(142, 68, 173, 0.35);
+}
+

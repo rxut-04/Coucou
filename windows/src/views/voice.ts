@@ -59,13 +59,40 @@ export function buildVoiceView(actions: ViewActions): ViewHost {
   });
   const transcriptContainer = h("div", { class: "voice-transcript-container" }, transcriptText);
 
-  // ── Action Result Card (Phase 2) ──────────────────────────────────────────
+  // ── Action Result Card (Phase 2 & Phase 4) ──────────────────────────────────
   const actionIcon = h("span", { class: "voice-action-icon", text: "⚡" });
   const actionBadge = h("span", { class: "voice-action-badge fast", text: "⚡ Fast Path" });
+  const tierBadge = h("span", { class: "voice-tier-badge hidden", text: "" });
   const actionTiming = h("span", { class: "voice-action-timing", text: "" });
-  const actionHeader = h("div", { class: "voice-action-header" }, actionIcon, actionBadge, actionTiming);
+  const actionHeader = h("div", { class: "voice-action-header" }, actionIcon, actionBadge, tierBadge, actionTiming);
   const actionFeedback = h("div", { class: "voice-action-feedback", text: "" });
-  const actionCard = h("div", { class: "voice-action-card hidden" }, actionHeader, actionFeedback);
+
+  // Interactive controls for Confirmation (Tier 3) and Undo (Tier 2)
+  const actionControls = h("div", { class: "voice-action-controls hidden" });
+  const confirmBtn = h("button", {
+    class: "voice-ctrl-btn voice-confirm-btn",
+    text: "✓ Confirm ('yes')",
+    onClick: () => {
+      void Bridge.voiceProcessQuery("yes");
+    },
+  });
+  const cancelBtn = h("button", {
+    class: "voice-ctrl-btn voice-cancel-btn",
+    text: "✕ Cancel ('no')",
+    onClick: () => {
+      void Bridge.voiceProcessQuery("no");
+    },
+  });
+  const undoBtn = h("button", {
+    class: "voice-ctrl-btn voice-undo-btn",
+    text: "↺ Undo ('undo that')",
+    onClick: () => {
+      void Bridge.voiceProcessQuery("undo that");
+    },
+  });
+  actionControls.append(confirmBtn, cancelBtn, undoBtn);
+
+  const actionCard = h("div", { class: "voice-action-card hidden" }, actionHeader, actionFeedback, actionControls);
 
   // ── Footer hint bar ───────────────────────────────────────────────────────
   const hints = h(
@@ -125,6 +152,8 @@ export function buildVoiceView(actions: ViewActions): ViewHost {
       transcriptText.textContent = "Say something in any language…";
       latencyBadge.classList.add("hidden");
       actionCard.classList.add("hidden");
+      actionControls.classList.add("hidden");
+      tierBadge.classList.add("hidden");
       if (collapseTimeout) {
         clearTimeout(collapseTimeout);
         collapseTimeout = null;
@@ -179,10 +208,48 @@ export function buildVoiceView(actions: ViewActions): ViewHost {
       actionTiming.textContent = `${(res.decisionLatencyMs / 1000).toFixed(1)}s`;
     }
 
-    if (res.clarification) {
-      actionIcon.textContent = "❓";
-      actionCard.className = "voice-action-card clarify";
-      statusLabel.textContent = "Clarification";
+    if (res.tier) {
+      tierBadge.classList.remove("hidden");
+      if (res.tier.includes("Tier 3")) {
+        tierBadge.textContent = "🛡️ Tier 3";
+        tierBadge.className = "voice-tier-badge tier-3";
+      } else if (res.tier.includes("Tier 2")) {
+        tierBadge.textContent = "📝 Tier 2";
+        tierBadge.className = "voice-tier-badge tier-2";
+      } else {
+        tierBadge.textContent = "⚡ Tier 1";
+        tierBadge.className = "voice-tier-badge tier-1";
+      }
+    } else {
+      tierBadge.classList.add("hidden");
+    }
+
+    // Interactive confirmation & undo buttons
+    if (res.requiresConfirmation) {
+      actionControls.classList.remove("hidden");
+      confirmBtn.style.display = "inline-flex";
+      cancelBtn.style.display = "inline-flex";
+      undoBtn.style.display = "none";
+    } else if (res.canUndo) {
+      actionControls.classList.remove("hidden");
+      confirmBtn.style.display = "none";
+      cancelBtn.style.display = "none";
+      undoBtn.style.display = "inline-flex";
+    } else {
+      actionControls.classList.add("hidden");
+      confirmBtn.style.display = "none";
+      cancelBtn.style.display = "none";
+      undoBtn.style.display = "none";
+    }
+
+    if (res.clarification || res.requiresConfirmation) {
+      actionIcon.textContent = res.requiresConfirmation ? "🛡️" : "❓";
+      actionCard.className = `voice-action-card ${res.requiresConfirmation ? "sensitive" : "clarify"}`;
+      statusLabel.textContent = res.requiresConfirmation ? "Action Confirmation" : "Clarification";
+      if (collapseTimeout) {
+        clearTimeout(collapseTimeout);
+        collapseTimeout = null;
+      }
     } else {
       actionIcon.textContent = res.success ? "✨" : "⚠️";
       actionCard.className = `voice-action-card ${res.success ? "success" : "failure"}`;
@@ -191,7 +258,7 @@ export function buildVoiceView(actions: ViewActions): ViewHost {
       if (collapseTimeout) clearTimeout(collapseTimeout);
       collapseTimeout = window.setTimeout(() => {
         actions.collapse();
-      }, 3500);
+      }, res.canUndo ? 6000 : 3500);
     }
   });
 

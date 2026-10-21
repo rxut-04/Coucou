@@ -36,10 +36,31 @@ pub enum VoiceIntent {
     ShowScore,
     OpenChat,
     SystemControl { action: String }, // "lock", "screenshot", "brightness-up", "brightness-down", "brightness-set:<pct>"
+    // ── Phase 4: Files, Safety & Permission Tiers ──────────────────────────
+    FindAndOpenFile { filename: String },
+    SearchFiles { query: String },
+    SummarizeFile { filename: String },
+    TakeNote { text: String },
+    DeleteFile { filename: String },
+    ConfirmAction { confirmed: bool },
+    Undo,
     Clarify { question: String },
     FollowUp { action: String, index: Option<usize> },
     Compound { actions: Vec<VoiceIntent> },
     Unknown { raw: String },
+}
+
+impl VoiceIntent {
+    pub fn permission_tier(&self) -> &'static str {
+        match self {
+            VoiceIntent::DeleteFile { .. } => "Tier 3 (Sensitive)",
+            VoiceIntent::FindAndOpenFile { .. }
+            | VoiceIntent::SummarizeFile { .. }
+            | VoiceIntent::TakeNote { .. }
+            | VoiceIntent::Undo => "Tier 2 (Benign Write / File Access)",
+            _ => "Tier 1 (Immediate)",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -53,6 +74,9 @@ pub struct VoiceActionResult {
     pub decision_latency_ms: u64,
     pub total_latency_ms: u64,
     pub clarification: Option<String>,
+    pub tier: String,
+    pub can_undo: bool,
+    pub requires_confirmation: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -165,7 +189,7 @@ pub fn normalize_query(text: &str) -> String {
     let trimmed = text.trim().to_lowercase();
     let cleaned: String = trimmed
         .chars()
-        .map(|c| if c.is_alphanumeric() || c.is_whitespace() || c == '.' || c == '-' || c == '/' || c == '\'' || c == '%' { c } else { ' ' })
+        .map(|c| if c.is_alphanumeric() || c.is_whitespace() || c == '.' || c == '-' || c == '_' || c == '/' || c == '\'' || c == '%' { c } else { ' ' })
         .collect();
     cleaned.split_whitespace().collect::<Vec<&str>>().join(" ")
 }
@@ -177,6 +201,10 @@ fn split_compound(query: &str) -> Vec<String> {
     let q = query.to_lowercase();
     if (q.contains("youtube") && q.contains("play"))
         || (q.contains("youtube") && (q.contains("chalao") || q.contains("bajao") || q.contains("lagao")))
+        || (q.contains("find") && q.contains("open"))
+        || (q.contains("dhundo") && q.contains("kholo"))
+        || (q.contains("cherche") && q.contains("ouvre"))
+        || (q.contains("busca") && q.contains("abre"))
     {
         return vec![query.to_string()];
     }
@@ -287,6 +315,173 @@ pub fn fast_path_classify(raw_query: &str) -> Option<VoiceIntent> {
     }
 
     let q = norm.as_str();
+
+    // ── 0. SAFETY: TIER 3 PENDING CONFIRMATION & UNDO ──────────────────────
+    if crate::voice_safety::has_pending_confirmation() {
+        let yes_words = [
+            "yes", "confirm", "proceed", "sure", "ok", "okay",
+            "haan", "haan karo", "ha", "theek hai",
+            "oui", "d'accord", "confirme",
+            "si", "sí", "claro", "confirmar",
+        ];
+        for y in yes_words {
+            if q == y {
+                return Some(VoiceIntent::ConfirmAction { confirmed: true });
+            }
+        }
+        let no_words = [
+            "no", "cancel", "stop", "abort",
+            "nahin", "mat karo", "roko",
+            "non", "annule", "arrete",
+            "no cancelar", "cancela",
+        ];
+        for n in no_words {
+            if q == n {
+                return Some(VoiceIntent::ConfirmAction { confirmed: false });
+            }
+        }
+    }
+
+    // Undo Tier 2 operations ("undo that", "undo", "wapas lo", "annule ça")
+    let undo_words = [
+        "undo that", "undo", "undo last action", "revert",
+        "wapas lo", "undo karo", "pichla action wapas lo",
+        "annule ca", "annule ça", "annule", "annuler", "defaire",
+        "deshacer", "deshazlo",
+    ];
+    for u in undo_words {
+        if q == u {
+            return Some(VoiceIntent::Undo);
+        }
+    }
+
+    // Take a note (Tier 2)
+    let note_prefixes = [
+        "take a note about ", "take a note on ", "take a note ", "take note of ", "take note ",
+        "note down ", "add note ", "new note ", "create note ",
+        "note banao ", "ek note likho ", "note likho ",
+        "prends une note sur ", "prends une note ", "ajoute une note ", "nouvelle note ",
+        "tomar nota de ", "tomar nota ", "crear nota ", "nueva nota ",
+    ];
+    for prefix in note_prefixes {
+        if q.starts_with(prefix) {
+            let text = q[prefix.len()..].trim().to_string();
+            if !text.is_empty() {
+                return Some(VoiceIntent::TakeNote { text });
+            }
+        }
+    }
+
+    // Summarize a file (Tier 2)
+    let summarize_prefixes = [
+        "summarize my file ", "summarize the file ", "summarize file ", "summarize my ", "summarize ",
+        "summary of file ", "summary of ", "give summary of ",
+        "resume le fichier ", "resume mon fichier ", "resume ",
+        "resumir el archivo ", "resumir mi archivo ", "resumir ", "resumen de ",
+    ];
+    for prefix in summarize_prefixes {
+        if q.starts_with(prefix) {
+            let filename = q[prefix.len()..].trim().to_string();
+            if !filename.is_empty() && filename != "file" && filename != "fichier" {
+                return Some(VoiceIntent::SummarizeFile { filename });
+            }
+        }
+    }
+    if q.ends_with(" ka summary do") || q.ends_with(" ko summarize karo") || q.ends_with(" ka summary") {
+        let clean = q
+            .replace("ka summary do", "")
+            .replace("ko summarize karo", "")
+            .replace("ka summary", "")
+            .replace("file", "")
+            .trim()
+            .to_string();
+        if !clean.is_empty() {
+            return Some(VoiceIntent::SummarizeFile { filename: clean });
+        }
+    }
+
+    // Delete a file (Tier 3: always asks confirmation first)
+    let delete_prefixes = [
+        "delete my file ", "delete the file ", "delete file ", "delete ",
+        "remove the file ", "remove file ", "remove ",
+        "supprime le fichier ", "supprime mon fichier ", "supprime ",
+        "eliminar el archivo ", "eliminar mi archivo ", "eliminar archivo ", "eliminar ",
+    ];
+    for prefix in delete_prefixes {
+        if q.starts_with(prefix) {
+            let filename = q[prefix.len()..].trim().to_string();
+            if !filename.is_empty() && filename != "file" && filename != "fichier" && filename != "it" {
+                return Some(VoiceIntent::DeleteFile { filename });
+            }
+        }
+    }
+    if q.ends_with(" delete karo") || q.ends_with(" hatao") || q.ends_with(" nikal do") {
+        let clean = q
+            .replace("delete karo", "")
+            .replace("hatao", "")
+            .replace("nikal do", "")
+            .replace("file", "")
+            .trim()
+            .to_string();
+        if !clean.is_empty() {
+            return Some(VoiceIntent::DeleteFile { filename: clean });
+        }
+    }
+
+    // Find and open file (Tier 2) / Search files (Tier 1)
+    if q.contains("find") || q.contains("search file") || q.contains("search files") || q.contains("dhundo") || q.contains("trouve") || q.contains("busca") {
+        if q.contains("open") || q.contains("kholo") || q.contains("ouvre") || q.contains("abrir") {
+            let clean = q
+                .replace("find my file and open it", "")
+                .replace("find my file and open", "")
+                .replace("find my file", "")
+                .replace("find my", "")
+                .replace("find and open file", "")
+                .replace("find and open", "")
+                .replace("find file", "")
+                .replace("find", "")
+                .replace("search file", "")
+                .replace("search", "")
+                .replace("and open it", "")
+                .replace("and open", "")
+                .replace("open file", "")
+                .replace("dhundo aur kholo", "")
+                .replace("dhundo", "")
+                .replace("kholo", "")
+                .replace("cherche et ouvre", "")
+                .replace("cherche mon fichier", "")
+                .replace("cherche le fichier", "")
+                .replace("trouve", "")
+                .replace("ouvre", "")
+                .replace("busca y abre", "")
+                .replace("busca mi archivo", "")
+                .replace("abrir", "")
+                .trim()
+                .to_string();
+            if !clean.is_empty() {
+                return Some(VoiceIntent::FindAndOpenFile { filename: clean });
+            }
+        }
+
+        if q.starts_with("find my ") || q.starts_with("find file ") || q.starts_with("search file ") || q.starts_with("search files ") || q.ends_with(" dhundo") {
+            let clean = q
+                .replace("search files for", "")
+                .replace("search file for", "")
+                .replace("search files", "")
+                .replace("search file", "")
+                .replace("find my file", "")
+                .replace("find my", "")
+                .replace("find file", "")
+                .replace("find", "")
+                .replace("dhundo", "")
+                .replace("file", "")
+                .trim()
+                .to_string();
+            if !clean.is_empty() && !clean.ends_with(".com") && !clean.ends_with(".rs") {
+                return Some(VoiceIntent::SearchFiles { query: clean });
+            }
+        }
+    }
 
     // ── 1. MEDIA CONTROLS & VOLUME ─────────────────────────────────────────
     // Volume Set to specific percentage (e.g. "set volume to 60%", "volume 80%", "aawaz 50 karo")
@@ -1245,6 +1440,52 @@ pub fn execute_intent(app: &AppHandle, intent: &VoiceIntent) -> (bool, String) {
             (true, "Opened Coucou chat".to_string())
         }
 
+        // ── Phase 4: Files, Notes, Safety Tiers ────────────────────────────────
+        VoiceIntent::FindAndOpenFile { filename } => {
+            let matches = crate::voice_safety::search_scoped_files(filename, 3);
+            if let Some(first) = matches.first() {
+                let _ = Command::new("xdg-open").arg(&first.path).spawn();
+                (true, format!("Found and opened {} ({})", first.name, first.path))
+            } else {
+                (false, format!("Could not find '{}' in Documents, Desktop, or Projects", filename))
+            }
+        }
+
+        VoiceIntent::SearchFiles { query } => {
+            let matches = crate::voice_safety::search_scoped_files(query, 5);
+            if matches.is_empty() {
+                (false, format!("No files found matching '{}'", query))
+            } else {
+                let names: Vec<String> = matches.iter().map(|m| m.name.clone()).collect();
+                (true, format!("Found {} file(s): {}", names.len(), names.join(", ")))
+            }
+        }
+
+        VoiceIntent::SummarizeFile { filename } => {
+            crate::voice_safety::summarize_file_content(filename)
+        }
+
+        VoiceIntent::TakeNote { text } => {
+            match crate::voice_safety::create_voice_note(text) {
+                Ok((_, display_path)) => {
+                    (true, format!("Saved note to {} (Say 'undo that' to revert)", display_path))
+                }
+                Err(err) => (false, format!("Failed to save note: {}", err)),
+            }
+        }
+
+        VoiceIntent::DeleteFile { filename } => {
+            crate::voice_safety::queue_tier3_deletion(filename)
+        }
+
+        VoiceIntent::ConfirmAction { confirmed } => {
+            crate::voice_safety::resolve_pending_confirmation(*confirmed)
+        }
+
+        VoiceIntent::Undo => {
+            crate::voice_safety::execute_undo()
+        }
+
         VoiceIntent::SystemControl { action } => {
             if let Some(pct_str) = action.strip_prefix("brightness-set:") {
                 if let Ok(pct) = pct_str.parse::<u32>() {
@@ -1343,6 +1584,13 @@ pub async fn process_voice_query(
         _ => None,
     };
 
+    let tier = intent.permission_tier().to_string();
+    let can_undo = {
+        let lock = crate::voice_safety::GLOBAL_UNDO_STACK.lock().unwrap();
+        !lock.is_empty()
+    };
+    let requires_confirmation = crate::voice_safety::has_pending_confirmation();
+
     let result = VoiceActionResult {
         intent: format!("{:?}", intent),
         is_fast_path,
@@ -1352,14 +1600,17 @@ pub async fn process_voice_query(
         decision_latency_ms,
         total_latency_ms,
         clarification,
+        tier,
+        can_undo,
+        requires_confirmation,
     };
 
     // Emit event to dynamic island UI
     let _ = app.emit("voice-action-result", &result);
 
     crate::log::line(format!(
-        "voice intent: query=\"{}\" fast_path={} decision={}ms total={}ms feedback=\"{}\"",
-        raw_query, is_fast_path, decision_latency_ms, total_latency_ms, result.feedback
+        "voice intent: query=\"{}\" fast_path={} decision={}ms total={}ms tier=\"{}\" feedback=\"{}\"",
+        raw_query, is_fast_path, decision_latency_ms, total_latency_ms, result.tier, result.feedback
     ));
 
     result
@@ -1636,6 +1887,81 @@ mod tests {
         assert_eq!(
             fast_path_classify("ouvre le chat"),
             Some(VoiceIntent::OpenChat)
+        );
+    }
+
+    #[test]
+    fn test_phase4_files_notes_and_safety_tiers() {
+        clear_voice_memory();
+
+        // 1. Take a note (Tier 2)
+        assert_eq!(
+            fast_path_classify("take a note about finish voice assistant phase 4"),
+            Some(VoiceIntent::TakeNote { text: "finish voice assistant phase 4".into() })
+        );
+        assert_eq!(
+            fast_path_classify("note banao test safety tiers"),
+            Some(VoiceIntent::TakeNote { text: "test safety tiers".into() })
+        );
+        assert_eq!(
+            fast_path_classify("prends une note sur le projet coucou"),
+            Some(VoiceIntent::TakeNote { text: "le projet coucou".into() })
+        );
+
+        // 2. Summarize a file (Tier 2)
+        assert_eq!(
+            fast_path_classify("summarize my project report"),
+            Some(VoiceIntent::SummarizeFile { filename: "project report".into() })
+        );
+        assert_eq!(
+            fast_path_classify("notes.txt ka summary do"),
+            Some(VoiceIntent::SummarizeFile { filename: "notes.txt".into() })
+        );
+        assert_eq!(
+            fast_path_classify("resume le fichier test.txt"),
+            Some(VoiceIntent::SummarizeFile { filename: "test.txt".into() })
+        );
+
+        // 3. Find and open file (Tier 2) vs Search files (Tier 1)
+        assert_eq!(
+            fast_path_classify("find my project report and open it"),
+            Some(VoiceIntent::FindAndOpenFile { filename: "project report".into() })
+        );
+        assert_eq!(
+            fast_path_classify("find and open api.js"),
+            Some(VoiceIntent::FindAndOpenFile { filename: "api.js".into() })
+        );
+        assert_eq!(
+            fast_path_classify("find my notes"),
+            Some(VoiceIntent::SearchFiles { query: "notes".into() })
+        );
+        assert_eq!(
+            fast_path_classify("search files document"),
+            Some(VoiceIntent::SearchFiles { query: "document".into() })
+        );
+
+        // 4. Delete file (Tier 3)
+        assert_eq!(
+            fast_path_classify("delete file old_notes.txt"),
+            Some(VoiceIntent::DeleteFile { filename: "old_notes.txt".into() })
+        );
+        assert_eq!(
+            fast_path_classify("temp.txt delete karo"),
+            Some(VoiceIntent::DeleteFile { filename: "temp.txt".into() })
+        );
+
+        // 5. Undo action (Tier 2 undo)
+        assert_eq!(
+            fast_path_classify("undo that"),
+            Some(VoiceIntent::Undo)
+        );
+        assert_eq!(
+            fast_path_classify("wapas lo"),
+            Some(VoiceIntent::Undo)
+        );
+        assert_eq!(
+            fast_path_classify("annule ca"),
+            Some(VoiceIntent::Undo)
         );
     }
 }

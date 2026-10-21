@@ -42,6 +42,7 @@ mod health_mode;
 mod system_media;
 mod voice;
 pub mod voice_intent;
+pub mod voice_safety;
 
 use focus_tracker::{focus_tracker_is_coding, focus_tracker_window_info};
 
