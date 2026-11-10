@@ -2,20 +2,41 @@
 
 <img src="src-tauri/icons/128x128.png" width="96" alt="Coucou icon">
 
-# Coucou for Windows
+# Coucou for Windows & Linux
 
 **Mochi doesn't get a notch on a PC — so it lives at the top of your screen instead.**
 
 Approve Claude Code permissions, watch your session work, drop a file, chat with Claude, keep an eye on your services — without leaving what you're doing.
 
 ![Windows 10/11](https://img.shields.io/badge/Windows-10%2F11-0078D4?logo=windows)
+![Linux Wayland & X11](https://img.shields.io/badge/Linux-Wayland%20%2F%20X11-FCC624?logo=linux&logoColor=black)
 ![Tauri 2](https://img.shields.io/badge/Tauri-2-FFC131?logo=tauri&logoColor=black)
 ![Rust](https://img.shields.io/badge/Rust-backend-000?logo=rust)
+![ElevenLabs](https://img.shields.io/badge/Voice-ElevenLabs%20%2B%20WisprFlow-orange)
 ![Code: MIT](https://img.shields.io/badge/code-MIT-green)
 
 </div>
 
 <img src="screenshots/greeting.png" width="640" alt="Mochi waving hello at launch">
+
+---
+
+## 🚀 Key Features Added in This Fork
+
+* 🎵 **Apple-Style Dynamic Island Media Visualizer (Spotify / YouTube / MPRIS)**:
+  * Automatically transforms the top island when music or video plays in **Brave, Chrome, Spotify, or VLC**.
+  * Shows thumbnail/art, live track title & artist, an animated dancing audio equalizer (`@keyframes eq-bounce`), and hover controls (Play/Pause, Previous, Next, and a live scrubbing seek bar).
+* ⚡ **Proactive Dynamic Island Quick Action Pills**:
+  * 🌿 **Git Uncommitted Changes (`🌿 X modified · Commit`)**: Real-time git repo change tracking with 1-click AI commit checkpointing.
+  * ❌ **Failing Tests (`❌ Test Failed · Auto-Fix`)**: Automatically catches test/syntax failures in VS Code and terminal; click to launch AI Auto-Fix with full stack traces.
+  * 📄 **Browser Article Reader (`📄 TL;DR`)**: Automatically activates while reading documentation and web articles; click for instant AI bulleted summary.
+* 🛡️ **Hardware & Resource Sentinel**:
+  * Continuous monitoring of CPU load, memory utilization, and thermal sensors.
+  * Automatically flags runaway processes (e.g. Docker, runaway builds) with a pulsating warning and provides 1-click process termination (`kill -15` / `kill -9`).
+* 🌅 **Morning Recap & Quotes Restoration**:
+  * "Where did I leave off" git morning recap card embedded with 500+ context-specific motivational quotes across coding, terminal, and browser sessions.
+* 🎙️ **Voice Assistant Integration**:
+  * Integrated speech-to-text (Wispr Flow / Whisper) and natural ElevenLabs voice agent with conversational screen control.
 
 ---
 

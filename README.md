@@ -35,6 +35,14 @@ Meet **Mochi**: a soft little squircle with big eyes that pops out of your notch
 ## Features
 
 - 🤖 **Claude Code, Cursor, Codex, Gemini CLI, Antigravity, Copilot CLI, Muse Code, OpenCode, Amp, Hermes and other agents, live** — see every session in your notch: what it reads, edits and runs, step by step. Tag a hook payload with `coucou_agent` to give any agent its own pill (see [`docs/AGENTS.md`](docs/AGENTS.md)). Finished? Mochi does a happy little jump.
+- 🎵 **Now Playing Media Visualizer (Spotify / YouTube / MPRIS)** — when audio or video plays in Brave, Chrome, Spotify, or VLC, the compact top island expands into an Apple-style media bar with album thumbnail, track metadata, inline Play/Pause/Seek controls, and an animated dancing equalizer wave (`@keyframes eq-bounce`).
+- ⚡ **Proactive Dynamic Island Widgets & Contextual Pills**:
+  - 🌿 **Git Uncommitted Changes Pill** (`🌿 X files modified`) — live repo tracking with one-click instant AI checkpoint commit.
+  - ❌ **VS Code / Terminal Test Failure Pill** (`❌ Test Failed`) — instant Auto-Fix with AI on syntax or test errors.
+  - 📄 **Browser Article Reader Pill** (`📄 TL;DR`) — instant 1-click AI summarization of web articles and documentation.
+- 🛡️ **Hardware & Resource Sentinel (CPU / RAM / Heat)** — real-time runaway detection for runaway processes (e.g. Docker, Node) with CPU temperature monitoring and one-click termination of runaway PIDs.
+- 🌅 **Morning Recap & Motivational Workflow Quotes** — "Where did I leave off" git recap alongside 500+ context-aware motivational engineering quotes for VS Code, Antigravity, Browser, and Terminal.
+- 🎙️ **Voice Assistant & Continuous Interaction** — integrated voice pipeline with ElevenLabs TTS, Wispr Flow / Whisper STT, and voice-driven OS command handling.
 - See what Claude is editing, live in the notch: each file modification shows the file name and +N −M counts in the ticker, tap to read the full diff
 - ✅ **Approve and answer from the notch** — Claude Code permission requests show up with **Allow / Deny / Always**; `AskUserQuestion` prompts show the choices right in the notch (single or multi-select, up to 4 questions). One click, or "Reply in terminal" to fall back to the CLI. Codex also gets Allow / Deny.
 - 🧑‍💻 **Jump to the right terminal** — open the exact terminal window of a session *(macOS)*.
