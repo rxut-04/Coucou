@@ -44,9 +44,10 @@
 </p>
 
 <div align="center">
-  <video src="docs/media/coucou.webm" width="85%" poster="docs/media/coucou-poster.png" controls autoplay loop muted playsinline style="border-radius: 14px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
-    Your browser does not support the video tag.
-  </video>
+  <img src="docs/media/coucou.gif" width="85%" alt="Coucou in action" style="border-radius: 14px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);" />
+  <p align="center">
+    <sub>🎬 <i>Live recording of Coucou running on Linux KDE Plasma. Watch full WebM: <a href="docs/media/coucou.webm">docs/media/coucou.webm</a></i></sub>
+  </p>
 </div>
 
 <br>
