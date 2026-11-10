@@ -159,6 +159,8 @@ class WorkflowEngine {
       this.refreshBluetoothStatus(),
       this.refreshWeatherStatus(),
       this.refreshMediaStatus(),
+      this.refreshResourceSentinel(),
+      this.refreshGitStatus(),
     ]);
   }
 
@@ -264,6 +266,85 @@ class WorkflowEngine {
     } else {
       await this.refreshMediaStatus();
     }
+  }
+
+  async refreshResourceSentinel() {
+    const sentinel = await Bridge.resourceSentinelGet();
+    if (sentinel) {
+      const prevAlert = State.resourceSentinel?.hasAlert;
+      State.resourceSentinel = sentinel;
+      if (sentinel.hasAlert && !prevAlert) {
+        Sound.play("blip");
+        this.showNotification({
+          message: `Sentinel Alert: ${sentinel.message}`,
+          detail: `Process PID: ${sentinel.pid} · Click to manage runaway resource`,
+        });
+      }
+      State.notify();
+    }
+  }
+
+  async killSentinelProcess(pid: number) {
+    Sound.play("blip");
+    const ok = await Bridge.resourceKillProcess(pid);
+    if (ok) {
+      this.showNotification({
+        message: `Process PID ${pid} terminated`,
+        detail: "Resource consumption returned to normal baseline",
+      });
+      await this.refreshResourceSentinel();
+    }
+  }
+
+  async refreshGitStatus(customDir?: string) {
+    const git = await Bridge.gitStatusQuick(customDir);
+    if (git) {
+      const prevTotal = State.gitQuickStatus?.totalChanged;
+      State.gitQuickStatus = git;
+      if (git.totalChanged !== prevTotal) {
+        State.notify();
+      }
+    }
+  }
+
+  async commitUncommittedChanges(message?: string) {
+    Sound.play("blip");
+    const res = await Bridge.gitAutoCommitAi(undefined, message);
+    if (res) {
+      this.showNotification({
+        message: "Git checkpoint created",
+        detail: res,
+      });
+      await this.refreshGitStatus();
+    }
+  }
+
+  triggerAutoFixTest(taskName: string, errorSummary: string) {
+    Sound.play("blip");
+    State.promptContext = {
+      kind: "window",
+      appName: taskName,
+      title: `Auto-Fix: ${errorSummary}`,
+    };
+    State.workflowNotification = {
+      message: `🔧 AI Auto-Fix initiated for ${taskName}`,
+      detail: errorSummary,
+    };
+    State.notify();
+  }
+
+  triggerArticleSummary(title: string, domain: string) {
+    Sound.play("blip");
+    State.promptContext = {
+      kind: "file",
+      name: `${title} (${domain})`,
+      path: domain,
+    };
+    State.workflowNotification = {
+      message: `📄 Summarizing "${title.slice(0, 35)}..."`,
+      detail: `Source: ${domain}`,
+    };
+    State.notify();
   }
 
   private async initStatsDashboard() {
@@ -403,6 +484,9 @@ class WorkflowEngine {
     const recap = await Bridge.morningRecapGet(false);
     if (recap) {
       State.morningRecap = recap;
+      if (!State.lastWorkflowQuote) {
+        State.lastWorkflowQuote = getQuoteForWindow(recap.lastProject || "vscode");
+      }
       if (recap.shouldShowToday) {
         State.showingMorningRecap = true;
         Sound.play("peek");
@@ -934,14 +1018,11 @@ class WorkflowEngine {
     void this.refreshBatteryStatus();
     if (this.agentPollCounter % 2 === 0) {
       void this.refreshBluetoothStatus();
-    }
-    const isBrowserFocused =
-      State.focusTask?.name === "Browser" ||
-      (State.focusTask?.windowClass || "").toLowerCase().includes("brave") ||
-      (State.focusTask?.windowClass || "").toLowerCase().includes("chrome") ||
-      (State.focusTask?.windowClass || "").toLowerCase().includes("firefox");
-    if (State.mode === "expanded" || isBrowserFocused || this.agentPollCounter % 2 === 0) {
       void this.refreshMediaStatus();
+    }
+    if (this.agentPollCounter % 4 === 0) {
+      void this.refreshResourceSentinel();
+      void this.refreshGitStatus();
     }
   }
 

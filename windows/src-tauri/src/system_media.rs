@@ -1,7 +1,7 @@
 // Battery charging status (/sys/class/power_supply) and MPRIS / browser media
 // playback controls (playerctl + wpctl) for the Coucou Dynamic Island.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -808,5 +808,317 @@ pub async fn weather_status_get() -> WeatherStatus {
     let mut guard = cache.lock().unwrap();
     guard.0 = Some(std::time::Instant::now());
     guard.1.clone()
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Proactive Dynamic Island Widgets: Resource Sentinel & Git Quick Status
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceSentinelStatus {
+    pub has_alert: bool,
+    pub alert_type: String, // "ram" | "cpu" | "temp" | "normal"
+    pub process_name: String,
+    pub pid: u32,
+    pub cpu_percent: f64,
+    pub mem_percent: f64,
+    pub message: String,
+    pub can_kill: bool,
+    pub total_ram_gb: f64,
+    pub used_ram_gb: f64,
+    pub ram_percent: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitQuickStatus {
+    pub is_repo: bool,
+    pub branch: String,
+    pub modified_count: usize,
+    pub untracked_count: usize,
+    pub total_changed: usize,
+    pub summary: String,
+    pub files: Vec<String>,
+}
+
+#[tauri::command]
+pub fn resource_sentinel_get() -> ResourceSentinelStatus {
+    let mut total_kb: f64 = 0.0;
+    let mut avail_kb: f64 = 0.0;
+    if let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo") {
+        for line in meminfo.lines() {
+            if line.starts_with("MemTotal:") {
+                if let Some(val) = line.split_whitespace().nth(1) {
+                    total_kb = val.parse::<f64>().unwrap_or(0.0);
+                }
+            } else if line.starts_with("MemAvailable:") {
+                if let Some(val) = line.split_whitespace().nth(1) {
+                    avail_kb = val.parse::<f64>().unwrap_or(0.0);
+                }
+            }
+        }
+    }
+
+    let total_ram_gb = (total_kb / 1024.0 / 1024.0 * 10.0).round() / 10.0;
+    let used_kb = (total_kb - avail_kb).max(0.0);
+    let used_ram_gb = (used_kb / 1024.0 / 1024.0 * 10.0).round() / 10.0;
+    let ram_percent = if total_kb > 0.0 {
+        ((used_kb / total_kb) * 100.0).round()
+    } else {
+        0.0
+    };
+
+    let mut max_temp_c: f64 = 0.0;
+    if let Ok(entries) = std::fs::read_dir("/sys/class/thermal") {
+        for entry in entries.flatten() {
+            let temp_path = entry.path().join("temp");
+            if let Ok(raw) = std::fs::read_to_string(temp_path) {
+                if let Ok(millic) = raw.trim().parse::<f64>() {
+                    let c = millic / 1000.0;
+                    if c > max_temp_c {
+                        max_temp_c = c;
+                    }
+                }
+            }
+        }
+    }
+
+    let mut top_pid: u32 = 0;
+    let mut top_comm = String::new();
+    let mut top_cpu: f64 = 0.0;
+    let mut top_mem: f64 = 0.0;
+
+    if let Ok(out) = Command::new("ps")
+        .args(["-eo", "pid,pcpu,pmem,comm", "--sort=-pmem"])
+        .output()
+    {
+        if out.status.success() {
+            let s = String::from_utf8_lossy(&out.stdout);
+            for line in s.lines().skip(1).take(5) {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 4 {
+                    let pid = parts[0].parse::<u32>().unwrap_or(0);
+                    let cpu = parts[1].parse::<f64>().unwrap_or(0.0);
+                    let mem = parts[2].parse::<f64>().unwrap_or(0.0);
+                    let comm = parts[3..].join(" ");
+                    if pid > 1 && !comm.contains("coucou") && (mem > top_mem || (mem > 20.0 && cpu > top_cpu)) {
+                        top_pid = pid;
+                        top_cpu = cpu;
+                        top_mem = mem;
+                        top_comm = comm;
+                    }
+                }
+            }
+        }
+    }
+
+    if top_cpu < 80.0 {
+        if let Ok(out) = Command::new("ps")
+            .args(["-eo", "pid,pcpu,pmem,comm", "--sort=-pcpu"])
+            .output()
+        {
+            if out.status.success() {
+                let s = String::from_utf8_lossy(&out.stdout);
+                for line in s.lines().skip(1).take(3) {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 4 {
+                        let pid = parts[0].parse::<u32>().unwrap_or(0);
+                        let cpu = parts[1].parse::<f64>().unwrap_or(0.0);
+                        let mem = parts[2].parse::<f64>().unwrap_or(0.0);
+                        let comm = parts[3..].join(" ");
+                        if pid > 1 && !comm.contains("coucou") && cpu > 80.0 {
+                            top_pid = pid;
+                            top_cpu = cpu;
+                            top_mem = mem;
+                            top_comm = comm;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let mut has_alert = false;
+    let mut alert_type = "normal".to_string();
+    let mut message = String::new();
+    let mut can_kill = false;
+
+    if top_mem >= 30.0 || (ram_percent >= 85.0 && top_mem >= 15.0) {
+        has_alert = true;
+        alert_type = "ram".to_string();
+        message = format!("{} is consuming {:.0}% of your RAM", top_comm, top_mem);
+        can_kill = top_pid > 1;
+    } else if top_cpu >= 85.0 {
+        has_alert = true;
+        alert_type = "cpu".to_string();
+        message = format!("{} is consuming {:.0}% CPU", top_comm, top_cpu);
+        can_kill = top_pid > 1;
+    } else if max_temp_c >= 85.0 {
+        has_alert = true;
+        alert_type = "temp".to_string();
+        message = format!("CPU temperature high: {:.0}°C", max_temp_c);
+        can_kill = false;
+    }
+
+    ResourceSentinelStatus {
+        has_alert,
+        alert_type,
+        process_name: top_comm,
+        pid: top_pid,
+        cpu_percent: top_cpu,
+        mem_percent: top_mem,
+        message,
+        can_kill,
+        total_ram_gb,
+        used_ram_gb,
+        ram_percent,
+    }
+}
+
+#[tauri::command]
+pub fn resource_kill_process(pid: u32) -> Result<bool, String> {
+    if pid <= 1 {
+        return Err("Cannot kill system init process".to_string());
+    }
+    let status = Command::new("kill").args(["-15", &pid.to_string()]).status();
+    match status {
+        Ok(s) if s.success() => Ok(true),
+        _ => {
+            let s9 = Command::new("kill").args(["-9", &pid.to_string()]).status();
+            match s9 {
+                Ok(s) if s.success() => Ok(true),
+                _ => Err(format!("Failed to kill PID {}", pid)),
+            }
+        }
+    }
+}
+
+fn find_repo_dir(custom_path: Option<&str>) -> std::path::PathBuf {
+    if let Some(p) = custom_path {
+        let pb = std::path::PathBuf::from(p);
+        if pb.exists() {
+            return pb;
+        }
+    }
+    let candidates = [
+        "/run/media/om-raut/New Volume/COUCOU/coucou_old",
+        "/run/media/om-raut/New Volume/COUCOU",
+        ".",
+    ];
+    for c in candidates {
+        let pb = std::path::PathBuf::from(c);
+        if pb.join(".git").exists() {
+            return pb;
+        }
+    }
+    std::path::PathBuf::from(".")
+}
+
+#[tauri::command]
+pub fn git_status_quick(target_dir: Option<String>) -> GitQuickStatus {
+    let repo_dir = find_repo_dir(target_dir.as_deref());
+    let mut branch = String::new();
+    let mut is_repo = false;
+
+    if let Ok(out) = Command::new("git")
+        .args(["-C", &repo_dir.to_string_lossy(), "rev-parse", "--abbrev-ref", "HEAD"])
+        .output()
+    {
+        if out.status.success() {
+            branch = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            is_repo = true;
+        }
+    }
+
+    if !is_repo {
+        return GitQuickStatus {
+            is_repo: false,
+            branch: String::new(),
+            modified_count: 0,
+            untracked_count: 0,
+            total_changed: 0,
+            summary: String::new(),
+            files: Vec::new(),
+        };
+    }
+
+    let mut modified_count = 0;
+    let mut untracked_count = 0;
+    let mut files = Vec::new();
+
+    if let Ok(out) = Command::new("git")
+        .args(["-C", &repo_dir.to_string_lossy(), "status", "--porcelain"])
+        .output()
+    {
+        if out.status.success() {
+            let s = String::from_utf8_lossy(&out.stdout);
+            for line in s.lines() {
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                if trimmed.starts_with("??") {
+                    untracked_count += 1;
+                } else {
+                    modified_count += 1;
+                }
+                if let Some(file_name) = trimmed.split_whitespace().nth(1) {
+                    files.push(file_name.to_string());
+                }
+            }
+        }
+    }
+
+    let total_changed = modified_count + untracked_count;
+    let summary = if total_changed == 0 {
+        "Clean".to_string()
+    } else {
+        format!("{} files modified", total_changed)
+    };
+
+    GitQuickStatus {
+        is_repo: true,
+        branch,
+        modified_count,
+        untracked_count,
+        total_changed,
+        summary,
+        files,
+    }
+}
+
+#[tauri::command]
+pub fn git_auto_commit_ai(target_dir: Option<String>, message: Option<String>) -> Result<String, String> {
+    let repo_dir = find_repo_dir(target_dir.as_deref());
+    let add_status = Command::new("git")
+        .args(["-C", &repo_dir.to_string_lossy(), "add", "-A"])
+        .status()
+        .map_err(|e| e.to_string())?;
+
+    if !add_status.success() {
+        return Err("git add failed".to_string());
+    }
+
+    let commit_msg = message.unwrap_or_else(|| {
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        format!("checkpoint: uncommitted work ({})", ts)
+    });
+
+    let commit_out = Command::new("git")
+        .args(["-C", &repo_dir.to_string_lossy(), "commit", "-m", &commit_msg])
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    if commit_out.status.success() {
+        Ok(format!("Committed: {}", commit_msg))
+    } else {
+        let err_str = String::from_utf8_lossy(&commit_out.stderr);
+        Err(err_str.to_string())
+    }
 }
 

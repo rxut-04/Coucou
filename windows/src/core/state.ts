@@ -19,9 +19,11 @@ import {
   type BluetoothStatus,
   type DailyGoalRecord,
   type DomainCategory,
+  type GitQuickStatus,
   type HealthStatusSnapshot,
   type MediaStatus,
   type MorningRecapData,
+  type ResourceSentinelStatus,
   type StatsDashboardData,
   type TaskRecord,
   type WeatherStatus,
@@ -564,6 +566,14 @@ class AppState {
   bluetoothToastTriggerSeq = 0;
   /** Live MPRIS / browser media playback status (playerctl). */
   mediaStatus: MediaStatus | null = null;
+  /** Resource Sentinel alert status (CPU, RAM, Temp runaway detector). */
+  resourceSentinel: ResourceSentinelStatus | null = null;
+  /** Git quick status for uncommitted changes pill. */
+  gitQuickStatus: GitQuickStatus | null = null;
+  /** Active test failure if detected in VS Code / terminal. */
+  activeTestFailure: { taskName: string; errorSummary: string; timestamp: number } | null = null;
+  /** Browser article summary context. */
+  browserArticleContext: { domain: string; title: string; url?: string } | null = null;
   /** Phase A-F: Layout stress test mode ("off" | "on" | "recap" | "agent" | "few" | "compact"). */
   layoutStressMode = "off";
   /** Phase A-F: Extra status badges injected during layout stress test to reach 12+ badges. */

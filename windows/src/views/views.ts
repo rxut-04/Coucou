@@ -24,6 +24,7 @@ import { buildVoiceView } from "./voice";
 import type { Outfit, OutfitSelection } from "../mochi/wardrobe";
 import { language, t, tl, type Msg } from "../i18n/i18n";
 import { Workflow, formatDurationCompact, formatMmSs } from "../core/workflow";
+import { getQuoteForWindow } from "../core/quotes";
 
 export interface ViewActions {
   setView(v: IslandViewName): void;
@@ -370,10 +371,14 @@ export function buildHeader(actions: ViewActions): ViewHost {
     "button",
     {
       class: "p3-pill p6-recap-btn",
-      title: "Show 'Where did I leave off' recap",
+      title: "Toggle 'Where did I leave off' recap & motivational quotes",
       onclick: (e: Event) => {
         e.stopPropagation();
-        void Workflow.triggerMorningRecapDemo();
+        if (State.showingMorningRecap) {
+          void Workflow.dismissMorningRecap();
+        } else {
+          void Workflow.triggerMorningRecapDemo();
+        }
       },
     },
     h("span", { text: "🌅" }),
@@ -442,6 +447,82 @@ export function buildHeader(actions: ViewActions): ViewHost {
     bluetoothPillLabel,
   );
 
+  // ── Proactive Pill: Git Uncommitted Changes ("🌿 4 files modified")
+  const gitPillLabel = h("span", { class: "p3-git-label", text: "🌿 0 modified" });
+  const gitQuickPill = h(
+    "button",
+    {
+      class: "p3-pill git-pill",
+      style: "display:none",
+      title: "Uncommitted changes — Click to auto-commit checkpoint with AI",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        void Workflow.commitUncommittedChanges();
+      },
+    },
+    gitPillLabel,
+  );
+
+  // ── Proactive Pill: VS Code Failing Test ("❌ Test Failed")
+  const testFailedLabel = h("span", { class: "p3-test-label", text: "❌ Test Failed" });
+  const testFailedPill = h(
+    "button",
+    {
+      class: "p3-pill test-fail-pill",
+      style: "display:none",
+      title: "Test failure detected — Click to auto-fix with AI",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        if (State.activeTestFailure) {
+          Workflow.triggerAutoFixTest(State.activeTestFailure.taskName, State.activeTestFailure.errorSummary);
+          actions.setView("prompt");
+        }
+      },
+    },
+    testFailedLabel,
+  );
+
+  // ── Proactive Pill: Browser Reading Article ("📄 TL;DR")
+  const articlePillLabel = h("span", { class: "p3-article-label", text: "📄 TL;DR" });
+  const browserArticlePill = h(
+    "button",
+    {
+      class: "p3-pill article-pill",
+      style: "display:none",
+      title: "Article reading detected — Click to summarize page with AI",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        const task = State.focusTask;
+        const caption = task?.windowCaption || "Active Article";
+        const domain = State.browserDomain?.domain || "web";
+        Workflow.triggerArticleSummary(caption, domain);
+        actions.setView("prompt");
+      },
+    },
+    articlePillLabel,
+  );
+
+  // ── Proactive Pill: Hardware Sentinel Runaway ("⚠️ Docker 94% RAM")
+  const sentinelPillLabel = h("span", { class: "p3-sentinel-label", text: "⚠️ High Resource" });
+  const resourceSentinelPill = h(
+    "button",
+    {
+      class: "p3-pill sentinel-pill",
+      style: "display:none",
+      title: "Resource Sentinel alert — Click to terminate runaway process",
+      onclick: (e: Event) => {
+        e.stopPropagation();
+        const alert = State.resourceSentinel;
+        if (alert && alert.pid > 1) {
+          if (confirm(`Resource Sentinel Alert:\n${alert.message}\nPID: ${alert.pid}\n\nDo you want Coucou to terminate this process?`)) {
+            void Workflow.killSentinelProcess(alert.pid);
+          }
+        }
+      },
+    },
+    sentinelPillLabel,
+  );
+
   const stressExtraContainer = h("span", { style: "display:contents" });
 
   const phase3Bar = h(
@@ -450,6 +531,10 @@ export function buildHeader(actions: ViewActions): ViewHost {
     taskPillEl,
     weatherPill,
     bluetoothPill,
+    gitQuickPill,
+    testFailedPill,
+    browserArticlePill,
+    resourceSentinelPill,
     dailyGoalsPill,
     morningRecapBtn,
     healthModePill,
@@ -533,6 +618,52 @@ export function buildHeader(actions: ViewActions): ViewHost {
       bluetoothPill.title = `Connected: ${bt.primaryName} (${bt.primaryBattery}%) — Click to show Bluetooth Dynamic Bar`;
     } else {
       bluetoothPill.style.display = "none";
+    }
+
+    // ── Proactive Pill: Git Status Quick Pill
+    const git = State.gitQuickStatus;
+    if (git?.isRepo && git.totalChanged > 0) {
+      gitQuickPill.style.display = "";
+      gitPillLabel.textContent = `🌿 ${git.totalChanged} modified · Commit`;
+      gitQuickPill.title = `Git: ${git.branch} (${git.totalChanged} modified files):\n${git.files.slice(0, 6).join("\n")}${git.files.length > 6 ? "\n..." : ""}\n\nClick to create an instant AI commit checkpoint!`;
+    } else {
+      gitQuickPill.style.display = "none";
+    }
+
+    // ── Proactive Pill: VS Code / Terminal Test Failure Pill
+    const tf = State.activeTestFailure;
+    if (tf) {
+      testFailedPill.style.display = "";
+      testFailedLabel.textContent = "❌ Test Failed · Auto-Fix";
+      testFailedPill.title = `Failing test in ${tf.taskName}:\n${tf.errorSummary}\n\nClick to Auto-Fix with AI!`;
+    } else {
+      testFailedPill.style.display = "none";
+    }
+
+    // ── Proactive Pill: Browser Article TL;DR Pill
+    const isBrowser =
+      State.focusTask?.name === "Browser" ||
+      (State.focusTask?.windowClass || "").toLowerCase().includes("brave") ||
+      (State.focusTask?.windowClass || "").toLowerCase().includes("chrome") ||
+      (State.focusTask?.windowClass || "").toLowerCase().includes("firefox");
+    const domain = State.browserDomain?.domain ?? "";
+    const isSearchOrBlank = !domain || domain.includes("google") || domain.includes("duckduckgo") || domain.includes("bing");
+    if (isBrowser && !isSearchOrBlank) {
+      browserArticlePill.style.display = "";
+      articlePillLabel.textContent = "📄 TL;DR";
+      browserArticlePill.title = `Reading on ${domain} — Click for instant AI summary & key takeaways!`;
+    } else {
+      browserArticlePill.style.display = "none";
+    }
+
+    // ── Proactive Pill: Resource Sentinel Runaway Pill
+    const sentinel = State.resourceSentinel;
+    if (sentinel?.hasAlert) {
+      resourceSentinelPill.style.display = "";
+      sentinelPillLabel.textContent = `⚠️ ${sentinel.processName} ${sentinel.alertType === "ram" ? `${Math.round(sentinel.memPercent)}% RAM` : `${Math.round(sentinel.cpuPercent)}% CPU`}`;
+      resourceSentinelPill.title = `Sentinel Alert: ${sentinel.message} (PID: ${sentinel.pid})\nTotal RAM: ${sentinel.usedRamGb}GB / ${sentinel.totalRamGb}GB (${sentinel.ramPercent}%)\n\nClick to terminate runaway process!`;
+    } else {
+      resourceSentinelPill.style.display = "none";
     }
 
     const session = State.focusSession;
@@ -898,7 +1029,8 @@ function buildOverview(actions: ViewActions): ViewHost {
       } else if (State.showingMorningRecap && State.morningRecap) {
         const r = State.morningRecap;
         const goalsKey = State.dailyGoals.map((g) => `${g.id}:${g.done}:${g.title}`).join("|");
-        const key = `recap~${r.lastProject}~${r.lastFile}~${r.gitBranch}~${r.unfinishedTask}~${goalsKey}`;
+        const quoteKey = State.lastWorkflowQuote ?? "";
+        const key = `recap~${r.lastProject}~${r.lastFile}~${r.gitBranch}~${r.unfinishedTask}~${goalsKey}~${quoteKey}`;
         if (key !== cardKey) {
           cardKey = key;
           mode = "recap";
@@ -1947,6 +2079,7 @@ function renderHealthModeCard(): HTMLElement {
 function renderMorningRecapCard(recap: import("../core/bridge").MorningRecapData): HTMLElement {
   const projectName = recap.lastProject.split("/").filter(Boolean).pop() || recap.lastProject;
   const branchAndProj = `${recap.gitBranch} · ${projectName}`;
+  const displayQuote = State.lastWorkflowQuote || getQuoteForWindow(projectName || "vscode");
   return h(
     "div",
     { class: "int-card wf-card p6-recap-card" },
@@ -1960,7 +2093,7 @@ function renderMorningRecapCard(recap: import("../core/bridge").MorningRecapData
         "button",
         {
           class: "p3-btn p6-close-btn",
-          title: "Dismiss morning recap",
+          title: "Dismiss morning recap and return to active session quotes",
           onclick: (e: Event) => {
             e.stopPropagation();
             void Workflow.dismissMorningRecap();
@@ -1969,6 +2102,9 @@ function renderMorningRecapCard(recap: import("../core/bridge").MorningRecapData
         h("span", { text: "✓ Got it" }),
       ),
     ),
+    displayQuote
+      ? h("div", { class: "wf-note-msg", style: "margin: 5px 0 7px 0;", text: displayQuote })
+      : null,
     h(
       "div",
       { class: "p6-recap-line" },

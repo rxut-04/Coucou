@@ -32,7 +32,7 @@ import { IslandStateMachine } from "./fsm";
 import { refreshHookPills } from "./integrations";
 import { DesktopLink } from "./desktop";
 import { DRAG_THRESHOLD } from "../mochi/desktop-logic";
-import type { WorkflowNotification } from "../core/workflow";
+import { Workflow, type WorkflowNotification } from "../core/workflow";
 
 const BOT_OVERHANG = 40;
 const CLAUDE_DESKTOP_ID = "agent_claude-desktop";
@@ -100,6 +100,18 @@ export class Island {
   private bluetoothToastTimer: number | null = null;
   private countdown!: HTMLElement;
   private wakeStrip!: HTMLElement;
+
+  private compactMedia!: HTMLElement;
+  private mediaArtEl!: HTMLElement;
+  private mediaTitleEl!: HTMLElement;
+  private mediaArtistEl!: HTMLElement;
+  private mediaEqWaveEl!: HTMLElement;
+  private mediaControlsEl!: HTMLElement;
+  private mediaPrevBtn!: HTMLElement;
+  private mediaPlayPauseBtn!: HTMLElement;
+  private mediaNextBtn!: HTMLElement;
+  private mediaScrubTrack!: HTMLElement;
+  private mediaScrubFill!: HTMLElement;
 
   private header!: ViewHost;
   private views!: Map<IslandViewName, ViewHost>;
@@ -483,6 +495,103 @@ export class Island {
     );
     this.countdown = h("div", { id: "countdown" });
 
+    // ── Compact Media Visualizer (Now Playing with album art, marquee title, EQ wave & controls) ──
+    this.mediaArtEl = h("div", { class: "cm-art", title: "Now Playing" });
+    this.mediaTitleEl = h("span", { class: "cm-title", text: "Music" });
+    this.mediaArtistEl = h("span", { class: "cm-artist", text: "" });
+    this.mediaEqWaveEl = h(
+      "div",
+      { class: "cm-eq-wave", title: "Audio Visualizer" },
+      h("span", { class: "cm-eq-bar b1" }),
+      h("span", { class: "cm-eq-bar b2" }),
+      h("span", { class: "cm-eq-bar b3" }),
+      h("span", { class: "cm-eq-bar b4" }),
+    );
+
+    this.mediaPrevBtn = h(
+      "button",
+      {
+        class: "cm-ctrl-btn",
+        title: "Previous track",
+        onclick: (e: Event) => {
+          e.stopPropagation();
+          void Workflow.mediaAction("previous");
+        },
+      },
+      svg(ICONS.mediaPrev, 9),
+    );
+
+    this.mediaPlayPauseBtn = h(
+      "button",
+      {
+        class: "cm-ctrl-btn cm-play-btn",
+        title: "Play / Pause",
+        onclick: (e: Event) => {
+          e.stopPropagation();
+          void Workflow.mediaAction("play-pause");
+        },
+      },
+      svg(ICONS.mediaPause, 10),
+    );
+
+    this.mediaNextBtn = h(
+      "button",
+      {
+        class: "cm-ctrl-btn",
+        title: "Next track",
+        onclick: (e: Event) => {
+          e.stopPropagation();
+          void Workflow.mediaAction("next");
+        },
+      },
+      svg(ICONS.mediaNext, 9),
+    );
+
+    this.mediaScrubFill = h("div", { class: "cm-scrub-fill", style: "width: 0%" });
+    this.mediaScrubTrack = h(
+      "div",
+      {
+        class: "cm-scrub-track",
+        title: "Seek track",
+        onclick: (e: Event) => {
+          e.stopPropagation();
+          const dur = State.mediaStatus?.durationSecs ?? 0;
+          if (dur <= 0) return;
+          const me = e as MouseEvent;
+          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+          const ratio = Math.max(0, Math.min(1, (me.clientX - rect.left) / Math.max(1, rect.width)));
+          void Workflow.mediaAction("seek-to", ratio * dur);
+        },
+      },
+      this.mediaScrubFill,
+    );
+
+    this.mediaControlsEl = h(
+      "div",
+      { class: "cm-controls" },
+      this.mediaPrevBtn,
+      this.mediaPlayPauseBtn,
+      this.mediaNextBtn,
+      this.mediaScrubTrack,
+    );
+
+    this.compactMedia = h(
+      "div",
+      {
+        id: "compact-media",
+        title: "Now Playing — Click to expand player",
+        onclick: (e: Event) => {
+          if ((e.target as HTMLElement).closest(".cm-ctrl-btn, .cm-scrub-track")) return;
+          Sound.resume();
+          if (State.mode !== "expanded") this.fsm.click();
+        },
+      },
+      this.mediaArtEl,
+      h("div", { class: "cm-meta" }, this.mediaTitleEl, this.mediaArtistEl),
+      this.mediaEqWaveEl,
+      this.mediaControlsEl,
+    );
+
     // Separate sleek charging bar floating below the compact (inactive) bar when plugged in
     this.chargingLabelEl = h("span", { class: "cb-label", text: "Charging" });
     this.chargingPctEl = h("span", { class: "cb-pct", text: "96%" });
@@ -623,6 +732,7 @@ export class Island {
       this.botGlow,
       this.botCanvas,
       this.compactClock,
+      this.compactMedia,
       this.miniGrid,
       this.countdown,
     );
@@ -2140,6 +2250,7 @@ export class Island {
 
     this.syncChargingBar();
     this.syncBluetoothBar();
+    this.syncCompactMedia();
 
     const activeTasks = [
       ...(State.focusTask ? [State.focusTask] : []),
@@ -2154,6 +2265,58 @@ export class Island {
     if (this.chargingToastTimer != null) {
       window.clearTimeout(this.chargingToastTimer);
       this.chargingToastTimer = null;
+    }
+  }
+
+  private syncCompactMedia() {
+    if (!this.compactMedia) return;
+    const media = State.mediaStatus;
+    const isCompact = State.mode === "compact";
+    const hasMedia = Boolean(media?.active && (media.playing || (media.title && media.title.length > 0)));
+
+    if (isCompact && hasMedia && media) {
+      this.compactMedia.style.opacity = "1";
+      this.compactMedia.style.pointerEvents = "auto";
+      this.compactClock.style.opacity = "0";
+      this.miniGrid.style.opacity = "0";
+
+      // Update thumbnail / art
+      if (media.artUrl) {
+        let artSrc = media.artUrl;
+        if (artSrc.startsWith("file://")) {
+          artSrc = artSrc.replace("file://", "");
+        }
+        this.mediaArtEl.style.backgroundImage = `url("${artSrc}")`;
+        this.mediaArtEl.textContent = "";
+      } else {
+        this.mediaArtEl.style.backgroundImage = "none";
+        this.mediaArtEl.textContent = "🎵";
+      }
+
+      const rawTitle = media.title || "Audio playing";
+      const cleanTitle = rawTitle.length > 28 ? `${rawTitle.slice(0, 26)}…` : rawTitle;
+      this.mediaTitleEl.textContent = cleanTitle;
+      this.mediaArtistEl.textContent = media.artist ? ` · ${media.artist.slice(0, 16)}` : "";
+      this.compactMedia.classList.toggle("is-playing", media.playing);
+
+      // Play/Pause icon
+      const playIcon = media.playing ? svg(ICONS.mediaPause, 10) : svg(ICONS.mediaPlay, 10);
+      this.mediaPlayPauseBtn.replaceChildren(playIcon);
+
+      // Scrub progress
+      if (media.durationSecs > 0) {
+        const pct = Math.min(100, Math.max(0, (media.positionSecs / media.durationSecs) * 100));
+        this.mediaScrubFill.style.width = `${pct.toFixed(1)}%`;
+      } else {
+        this.mediaScrubFill.style.width = "0%";
+      }
+    } else {
+      this.compactMedia.style.opacity = "0";
+      this.compactMedia.style.pointerEvents = "none";
+      if (isCompact) {
+        this.compactClock.style.opacity = "1";
+        this.miniGrid.style.opacity = "1";
+      }
     }
   }
 

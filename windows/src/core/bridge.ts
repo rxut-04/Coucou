@@ -312,6 +312,13 @@ export const Bridge = {
   mediaControl: (action: string, value?: number) =>
     call<MediaStatus>("media_control", { action, value }),
 
+  // ── Resource Sentinel & Git Quick Status ──────────────────────────────────
+  resourceSentinelGet: () => call<ResourceSentinelStatus>("resource_sentinel_get"),
+  resourceKillProcess: (pid: number) => call<boolean>("resource_kill_process", { pid }),
+  gitStatusQuick: (targetDir?: string) => call<GitQuickStatus>("git_status_quick", { targetDir }),
+  gitAutoCommitAi: (targetDir?: string, message?: string) =>
+    call<string>("git_auto_commit_ai", { targetDir, message }),
+
   // ── Voice Assistant Pipeline (voice.rs) ──────────────────────────────────
   voiceStart: () => call<void>("voice_start"),
   voiceStop: () => call<void>("voice_stop"),
@@ -749,6 +756,30 @@ export interface HookPreview {
   settingsPath: string;
   /** Hand back to hooksApply so only the reviewed diff is ever written. */
   fingerprint: string;
+}
+
+export interface ResourceSentinelStatus {
+  hasAlert: boolean;
+  alertType: "ram" | "cpu" | "temp" | "normal";
+  processName: string;
+  pid: number;
+  cpuPercent: number;
+  memPercent: number;
+  message: string;
+  canKill: boolean;
+  totalRamGb: number;
+  usedRamGb: number;
+  ramPercent: number;
+}
+
+export interface GitQuickStatus {
+  isRepo: boolean;
+  branch: string;
+  modifiedCount: number;
+  untrackedCount: number;
+  totalChanged: number;
+  summary: string;
+  files: string[];
 }
 
 /** Same as `call`, but surfaces the error so the UI can show what went wrong. */
