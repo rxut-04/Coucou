@@ -1,330 +1,224 @@
+<!-- ===================== HERO BANNER ===================== -->
 <div align="center">
-
-<img src="NotchBuddy/Assets.xcassets/AppIcon.appiconset/icon_256x256.png" width="96" alt="Coucou icon">
-
-# Coucou
-
-**A tiny friend that lives in your Mac's notch — or at the top of your screen on Windows and Linux — and keeps an eye on your AI coding agent sessions. And now on your iPhone too.**
-
-Approve permissions, watch your agents work, drop a file, chat with Claude — all without leaving what you're doing. Walk away from your Mac and Mochi follows you to your iPhone: Lock Screen, Dynamic Island, widgets, Siri.
-
-[![Version](https://img.shields.io/github/v/release/Louis-CFM/coucou?filter=v*&label=version&color=0A84FF)](https://github.com/Louis-CFM/coucou/releases)
-![macOS 15+](https://img.shields.io/badge/macOS-15%2B-black?logo=apple)
-![iOS 18+](https://img.shields.io/badge/iOS-18%2B-black?logo=apple)
-![Windows 10/11](https://img.shields.io/badge/Windows-10%2F11-0078D4?logo=windows&logoColor=white)
-![Linux](https://img.shields.io/badge/Linux-AppImage%20%7C%20deb%20%7C%20rpm-FCC624?logo=linux&logoColor=black)
-![Swift 6](https://img.shields.io/badge/Swift-6-F05138?logo=swift&logoColor=white)
-![SwiftUI](https://img.shields.io/badge/SwiftUI-native-0A84FF)
-![Tauri 2](https://img.shields.io/badge/Tauri-2-FFC131?logo=tauri&logoColor=black)
-![Code: MIT](https://img.shields.io/badge/code-MIT-green)
-![GitHub stars](https://img.shields.io/github/stars/Louis-CFM/coucou?style=social)
-
-<img src="docs/media/demo.gif" width="760" alt="Coucou in action">
-
+  <img src="https://capsule-render.vercel.app/api?type=waving&color=gradient&customColorList=6,2,12&height=220&section=header&text=Coucou+✨&fontSize=52&fontColor=ffffff&animation=twinkling&fontAlignY=38&desc=A+Next-Gen+Dynamic+Island+%26+Mochi+AI+Companion+for+Linux+%26+Windows&descFontSize=18&descAlignY=62" width="100%" alt="Coucou Hero" />
 </div>
+
+<div align="center">
+  <a href="https://github.com/rxut-04/Coucou/stargazers">
+    <img src="https://img.shields.io/github/stars/rxut-04/Coucou?style=for-the-badge&logo=starship&logoColor=white&labelColor=1a1a1a&color=FF69B4" alt="Stars" />
+  </a>
+  <a href="https://github.com/rxut-04/Coucou/network/members">
+    <img src="https://img.shields.io/github/forks/rxut-04/Coucou?style=for-the-badge&logo=git&logoColor=white&labelColor=1a1a1a&color=FF69B4" alt="Forks" />
+  </a>
+  <a href="https://github.com/rxut-04/Coucou/issues">
+    <img src="https://img.shields.io/github/issues/rxut-04/Coucou?style=for-the-badge&logo=github&logoColor=white&labelColor=1a1a1a&color=FF69B4" alt="Issues" />
+  </a>
+  <img src="https://img.shields.io/badge/License-MIT-FF69B4?style=for-the-badge&logo=open-source-initiative&logoColor=white&labelColor=1a1a1a" alt="MIT License" />
+</div>
+
+<br>
+
+<!-- ===================== THREE TILES ===================== -->
+<div align="center">
+  <a href="#-key-custom-features">
+    <img src="https://img.shields.io/badge/⚡_Proactive_Island-Dynamic_Widgets-1a1a1a?style=for-the-badge&logo=sparkles&logoColor=FF69B4" width="31%" alt="Proactive Island" />
+  </a>
+  <a href="#-media-visualizer">
+    <img src="https://img.shields.io/badge/🎵_Now_Playing-MPRIS_Visualizer-1a1a1a?style=for-the-badge&logo=spotify&logoColor=FF69B4" width="31%" alt="Media Visualizer" />
+  </a>
+  <a href="#-voice--intelligence">
+    <img src="https://img.shields.io/badge/🎙️_Voice_Agent-ElevenLabs_STT-1a1a1a?style=for-the-badge&logo=openai&logoColor=FF69B4" width="31%" alt="Voice Agent" />
+  </a>
+</div>
+
+<br>
 
 ---
 
-## Why
+<!-- ===================== ABOUT ===================== -->
+<h2 align="center">✨ Meet Coucou & Mochi</h2>
 
-Some studios showed off gorgeous notch companions… and never let anyone use them.
-**Coucou is the open version.** Every line of code is open source under the MIT License: read it, fork it, learn from it. The Coucou name, Mochi and the sounds stay © Louis Raillé (see [License](#license)).
+<p align="center">
+  <b>Coucou</b> is an open-source, ultra-fluid <b>Dynamic Island & AI Companion</b> built with <b>Tauri 2</b>, <b>Rust</b>, and <b>TypeScript</b>.<br>
+  Anchored seamlessly to the top of your screen on <b>Linux (Wayland & X11)</b> and <b>Windows</b>, Mochi observes your workflow, manages AI coding sessions, provides instant one-click OS actions, and reacts with charming physics-driven animations.
+</p>
 
-Meet **Mochi**: a soft little squircle with big eyes that pops out of your notch, waves hello, follows your cursor with its eyes, gets annoyed when you poke it (and dizzy if you insist), and tells you the moment Claude Code needs you.
+<div align="center">
+  <img src="docs/media/demo.gif" width="760" alt="Coucou in action" style="border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.4);" />
+</div>
 
-## Features
+<br>
 
-- 🤖 **Claude Code, Cursor, Codex, Gemini CLI, Antigravity, Copilot CLI, Muse Code, OpenCode, Amp, Hermes and other agents, live** — see every session in your notch: what it reads, edits and runs, step by step. Tag a hook payload with `coucou_agent` to give any agent its own pill (see [`docs/AGENTS.md`](docs/AGENTS.md)). Finished? Mochi does a happy little jump.
-- 🎵 **Now Playing Media Visualizer (Spotify / YouTube / MPRIS)** — when audio or video plays in Brave, Chrome, Spotify, or VLC, the compact top island expands into an Apple-style media bar with album thumbnail, track metadata, inline Play/Pause/Seek controls, and an animated dancing equalizer wave (`@keyframes eq-bounce`).
-- ⚡ **Proactive Dynamic Island Widgets & Contextual Pills**:
-  - 🌿 **Git Uncommitted Changes Pill** (`🌿 X files modified`) — live repo tracking with one-click instant AI checkpoint commit.
-  - ❌ **VS Code / Terminal Test Failure Pill** (`❌ Test Failed`) — instant Auto-Fix with AI on syntax or test errors.
-  - 📄 **Browser Article Reader Pill** (`📄 TL;DR`) — instant 1-click AI summarization of web articles and documentation.
-- 🛡️ **Hardware & Resource Sentinel (CPU / RAM / Heat)** — real-time runaway detection for runaway processes (e.g. Docker, Node) with CPU temperature monitoring and one-click termination of runaway PIDs.
-- 🌅 **Morning Recap & Motivational Workflow Quotes** — "Where did I leave off" git recap alongside 500+ context-aware motivational engineering quotes for VS Code, Antigravity, Browser, and Terminal.
-- 🎙️ **Voice Assistant & Continuous Interaction** — integrated voice pipeline with ElevenLabs TTS, Wispr Flow / Whisper STT, and voice-driven OS command handling.
-- See what Claude is editing, live in the notch: each file modification shows the file name and +N −M counts in the ticker, tap to read the full diff
-- ✅ **Approve and answer from the notch** — Claude Code permission requests show up with **Allow / Deny / Always**; `AskUserQuestion` prompts show the choices right in the notch (single or multi-select, up to 4 questions). One click, or "Reply in terminal" to fall back to the CLI. Codex also gets Allow / Deny.
-- 🧑‍💻 **Jump to the right terminal** — open the exact terminal window of a session *(macOS)*.
-- 💬 **Chat with Claude, Gemini, OpenAI, or a local model (Ollama / LM Studio)** — click the model name above the chat box to switch provider and pick a model. Cloud providers use your own API key; local providers connect to a server running on your Mac. *(Gemini, OpenAI and local models: macOS)*
-- 📊 **Claude plan usage** *(macOS, GitHub build)* — a small pill in the notch header shows your 5-hour and weekly Claude plan limits. Enable it from Settings → Agents → Plan usage. Pro and Max plans only.
-- 📊 **Codex plan usage** *(macOS, GitHub build)* — a Codex pill next to it shows your Codex limits and how many free resets you have left, read from the Codex CLI. Turn it on in Settings → Agents → Plan usage.
-- 📋 **Declare the tools you use** — open Settings → Active pills and pick your main workspace tool (VS Code, Cursor, Codex or Antigravity), then toggle up to 4 more: Gemini CLI, Anthropic, Google AI, OpenAI, Ollama, LM Studio and service integrations *(macOS)*.
-- 📎 **Drop a file on the notch** — Mochi turns into a box and swallows it, then ask a question about it or send it by email *(email: macOS, Mail.app)*.
-- 🖥️ **Mochi on the desktop** — drag Mochi out of the island to set him loose on your desktop: he floats as a 120 pt companion, follows your cursor, wears his outfit, reacts to alerts by flying home and flying back, and comes back where you left him on next launch.
-- 🪟 **Drag Mochi onto any window** — attach that window as context for Claude *(macOS)*.
-- 🔌 **Integrations** — Stripe payments, n8n workflows, GitHub (open PRs, reviews requested, CI status), Vercel deployments, Resend emails, Notion, Cal.com. Each one gets its own little colored Mochi.
-- 🎵 **Apple Music pill** *(macOS, GitHub build)* — add the Apple Music pill in Settings → Active pills to see what's playing and control playback from the notch; Mochi dances while it plays.
-- 👗 **Dress Mochi up** — right-click him for the wardrobe. He also dresses up for the seasons on his own.
-- ⌨️ **Keyboard shortcuts** — open the chat, jump to an alert or a terminal, switch pills, mute, send Mochi to the desktop or open the wardrobe from anywhere; all customizable in Settings → Shortcuts.
-- 🎭 **A real character** — idle breathing, blinks, eyes on a sphere that follow your mouse, emotes, 28 handcrafted sounds, a greeting on launch.
-- 🫥 **Invisible when idle** — hides away when nothing is running, peeks out when you hover the notch (the top edge of the screen on Windows and Linux).
-- 🖥️ **Any Mac, notch or not** — on an iMac, a Mac mini, or a MacBook with its lid closed on an external display, Mochi sits in a small bar at the top of the screen. With several displays, pick his screen in Settings → General, or let him follow your mouse *(macOS)*.
-- 📱 **Coucou on iPhone** — your sessions, approvals and services in your pocket, with Live Activities, widgets and Siri. See [Coucou on iPhone](#coucou-on-iphone).
-- 📅 **Weekly recap** *(macOS)* — every Monday morning Coucou shows a summary of the past week: time coding, sessions, files, lines changed, commands, permissions, top agent and project, busiest day and longest session. Share it as a 1080 × 1920 image with Mochi — project names optional. All local, no sync.
-- 🌍 **10 languages** — English, 中文, हिन्दी, Español, العربية, Français, বাংলা, Português, Русский, Bahasa Indonesia. Pick one in Settings → General → Language; community translations welcome.
-- 🔒 **Private by design** — no telemetry, no account. Keys live in your macOS Keychain, Windows Credential Manager or Linux Secret Service (GNOME Keyring, KWallet). The app only talks to the services you plug in.
+---
 
-## Coucou on iPhone
+<!-- ===================== KEY FEATURES ===================== -->
+<h2 align="center">🚀 Key Custom Features</h2>
 
-The Mac app does the work; the iPhone app keeps you in the loop when you step away. It goes as far into the Apple ecosystem as a dev tool can:
-
-<table>
-<tr>
-<td colspan="3" align="center"><img src="docs/media/iphone-live-activity.jpg" width="520" alt="Mochi on the Lock Screen, waiting for your OK with Deny and Allow"></td>
-</tr>
-<tr>
-<td width="33%"><img src="docs/media/iphone-approval.jpg" alt="A permission request on the iPhone, Allow with Face ID"></td>
-<td width="33%"><img src="docs/media/iphone-session.jpg" alt="A Claude Code session on the iPhone: the prompt, what it did, Claude's answer and the next instruction"></td>
-<td width="33%"><img src="docs/media/iphone-widgets.jpg" alt="Home Screen widgets with each agent's and service's Mochi"></td>
-</tr>
+<table align="center" width="100%" border="0">
+  <tr>
+    <td width="50%" valign="top">
+      <h3>🎵 Now Playing Media Visualizer</h3>
+      <ul>
+        <li><b>Dynamic Island Transformation</b>: When playing audio or video in <b>Brave, Chrome, Spotify, or VLC</b>, the compact top bar morphs into an Apple-style media visualizer.</li>
+        <li><b>Animated Dancing Wave</b>: Real-time 4-bar dancing equalizer (<code>@keyframes eq-bounce</code>) reacting to playback.</li>
+        <li><b>Hover Controls</b>: Instant hover reveals <code>⏮</code> Prev, <code>⏯</code> Play/Pause, <code>⏭</code> Next, and a clickable seeking scrubber.</li>
+      </ul>
+    </td>
+    <td width="50%" valign="top">
+      <h3>⚡ Proactive Contextual Pills</h3>
+      <ul>
+        <li>🌿 <b>Git Uncommitted Changes (<code>🌿 X modified · Commit</code>)</b>: Live git status tracker with 1-click instant AI commit checkpoints.</li>
+        <li>❌ <b>Test Failure Auto-Fix (<code>❌ Test Failed</code>)</b>: Real-time failure detection in VS Code / terminal with instant AI root-cause resolution.</li>
+        <li>📄 <b>Browser Article Reader (<code>📄 TL;DR</code>)</b>: Detects documentation or article reading; click for instant AI summaries.</li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <h3>🛡️ Hardware & Resource Sentinel</h3>
+      <ul>
+        <li><b>Runaway Sentinel</b>: Continuously monitors CPU, RAM, and thermal sensors (<code>/sys/class/thermal</code>).</li>
+        <li><b>Runaway Process Detection</b>: Warns when processes (e.g. Docker, Node) consume excessive memory (>30%) or CPU (>80%).</li>
+        <li><b>1-Click Termination</b>: Kill runaway PIDs (<code>kill -15</code> / <code>kill -9</code>) straight from the island without opening a task manager.</li>
+      </ul>
+    </td>
+    <td width="50%" valign="top">
+      <h3>🎙️ Voice AI & Morning Recap</h3>
+      <ul>
+        <li><b>Voice Pipeline</b>: Speech-to-text (Wispr Flow / Whisper STT) + natural ElevenLabs voice agent for conversational OS control.</li>
+        <li><b>Morning Recap (Where did I leave off)</b>: Automatically summarizes your git branch, last modified file, and incomplete tasks.</li>
+        <li><b>500+ Motivational Quotes</b>: Context-aware quotes for VS Code, Antigravity, Terminal, and Browser sessions.</li>
+      </ul>
+    </td>
+  </tr>
 </table>
 
-- 🏝️ **Live Activity and Dynamic Island** — lock your Mac while an agent works and Mochi moves to your iPhone's Lock Screen and Dynamic Island with the agent's state, then comes back to the notch when you unlock. **Allow** or **Deny** a permission right from the Lock Screen, without opening the app.
-- 🔔 **Notifications you can act on** — Allow, Review or Deny a permission, pick an answer to Claude's question, or reply to a finished agent, straight from the notification.
-- 🔐 **Face ID on every Allow** — nothing runs on your Mac without your explicit tap; your Mac only applies a decision meant for the exact request it is waiting on.
-- 💬 **Talk to your agents** — follow each session live (steps, diffs, the last turn), answer questions, and send the next instruction to your Mac by text or voice.
-- 🧩 **Widgets, Control Center, Siri and Shortcuts** — home and Lock Screen widgets, a Control Center control, ask Siri how your agents are doing or send Claude an instruction, in Siri and Shortcuts.
-- 🔎 **Spotlight and Focus** — find past turns in Spotlight; a Focus filter shows only the agents waiting for you.
-- 📊 **Your services up close** — GitHub, Vercel, Stripe, Cal.com, n8n, Notion, Resend: your Mac reads their APIs with the keys in its Keychain and the iPhone shows the figures and lists. Safe actions (re-run CI, redeploy, merge a PR, pause a workflow) behind Face ID; nothing that moves money or sends an email.
-- 🫧 **Liquid Glass, native to the bone** — SwiftUI, tabs, zoom transitions, context menus, swipe actions, alternate icons, Mochi at 120 Hz.
-- 🔒 **Through your own iCloud** — sessions sync through your private CloudKit database; project names, commands and questions are encrypted with your iCloud keys. No Coucou server sees your projects, commands or keys. Turn it on in the Mac app: Settings → General → iPhone.
+<br>
 
-**Get it on your iPhone in 3 steps:** install Coucou on your iPhone ([Join the TestFlight beta](https://testflight.apple.com/join/3GpeHv2b) — free, App Store coming soon), turn on **Settings → General → iPhone** in the Mac app (0.1.9 or later), and use the same Apple Account in iCloud on both. Full guide, troubleshooting and build-it-yourself: [docs/IPHONE.md](docs/IPHONE.md).
+---
 
-<table>
-<tr>
-<td><img src="docs/media/claude-code.png" alt="Claude Code session"></td>
-<td><img src="docs/media/stripe.png" alt="Stripe payments"></td>
-</tr>
-<tr>
-<td><img src="docs/media/chat.png" alt="Chat with Claude"></td>
-<td><img src="docs/media/dizzy.png" alt="Too many hits"></td>
-</tr>
+<!-- ===================== TECH STACK ===================== -->
+<h2 align="center">💻 Tech Stack & Architecture</h2>
+
+<table align="center" width="100%" border="0">
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <h3>⚙️ Core Engine & Backend</h3>
+      <img src="https://img.shields.io/badge/Rust-%23000000.svg?style=for-the-badge&logo=rust&logoColor=white" alt="Rust" />
+      <img src="https://img.shields.io/badge/Tauri_2-%2324C8D8.svg?style=for-the-badge&logo=tauri&logoColor=white" alt="Tauri 2" />
+      <img src="https://img.shields.io/badge/Wayland_Layer_Shell-%23FCC624.svg?style=for-the-badge&logo=linux&logoColor=black" alt="Wayland" />
+      <img src="https://img.shields.io/badge/SQLite-%2307405E.svg?style=for-the-badge&logo=sqlite&logoColor=white" alt="SQLite" />
+      <img src="https://img.shields.io/badge/DBus_%2F_MPRIS-%23E95420.svg?style=for-the-badge&logo=gnome&logoColor=white" alt="DBus" />
+    </td>
+    <td width="50%" align="center" valign="top">
+      <h3>🌐 Frontend & UI Layer</h3>
+      <img src="https://img.shields.io/badge/TypeScript-%23007ACC.svg?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" />
+      <img src="https://img.shields.io/badge/Vite-%23646CFF.svg?style=for-the-badge&logo=vite&logoColor=white" alt="Vite" />
+      <img src="https://img.shields.io/badge/HTML5_Canvas_2D-%23E34F26.svg?style=for-the-badge&logo=html5&logoColor=white" alt="Canvas 2D" />
+      <img src="https://img.shields.io/badge/CSS3_Spring_Animations-%231572B6.svg?style=for-the-badge&logo=css3&logoColor=white" alt="CSS3" />
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <h3>🤖 AI, Speech & LLM Integrations</h3>
+      <img src="https://img.shields.io/badge/ElevenLabs-Voice_Synthesis-black?style=for-the-badge&logo=elevenlabs&logoColor=white" alt="ElevenLabs" />
+      <img src="https://img.shields.io/badge/Whisper_%2F_WisprFlow-STT-FF69B4?style=for-the-badge&logo=openai&logoColor=white" alt="Whisper" />
+      <img src="https://img.shields.io/badge/Claude_Code-%23D97706.svg?style=for-the-badge&logo=anthropic&logoColor=white" alt="Claude Code" />
+      <img src="https://img.shields.io/badge/Antigravity_%2F_Gemini-4285F4?style=for-the-badge&logo=google&logoColor=white" alt="Gemini" />
+    </td>
+    <td width="50%" align="center" valign="top">
+      <h3>🧰 Environment & Operating Systems</h3>
+      <img src="https://img.shields.io/badge/Linux_KDE_Plasma-1D99F3?style=for-the-badge&logo=kde&logoColor=white" alt="KDE Plasma" />
+      <img src="https://img.shields.io/badge/Linux_GNOME_%2F_Hyprland-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Linux" />
+      <img src="https://img.shields.io/badge/Windows_10_%2F_11-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Windows" />
+      <img src="https://img.shields.io/badge/VS_Code-0078d7.svg?style=for-the-badge&logo=visual-studio-code&logoColor=white" alt="VS Code" />
+    </td>
+  </tr>
 </table>
 
-## Versions
+<br>
 
-macOS releases are published as `v*` tags. See [CHANGELOG.md](CHANGELOG.md) for the full notes of each version.
+---
 
-| Version | Date | Highlights |
-|---------|------|------------|
-| [0.2.1](https://github.com/Louis-CFM/coucou/releases/tag/v0.2.1) | Oct 7, 2026 | Hermes Agent support |
-| [0.2.0](https://github.com/Louis-CFM/coucou/releases/tag/v0.2.0) | Oct 6, 2026 | Copilot CLI, Muse Code, OpenCode and Amp, weekly recap, 10 languages |
-| [0.1.9](https://github.com/Louis-CFM/coucou/releases/tag/v0.1.9) | Oct 6, 2026 | iPhone services with live details and actions, smarter Live Activity |
-| [0.1.8](https://github.com/Louis-CFM/coucou/releases/tag/v0.1.8) | Oct 5, 2026 | Coucou on iPhone: sessions, widgets, approvals with Face ID, Mochi in the Dynamic Island |
-| [0.1.7](https://github.com/Louis-CFM/coucou/releases/tag/v0.1.7) | Oct 4, 2026 | Keyboard shortcuts |
-| [0.1.6](https://github.com/Louis-CFM/coucou/releases/tag/v0.1.6) | Oct 4, 2026 | Mochi on the desktop |
-| [0.1.5](https://github.com/Louis-CFM/coucou/releases/tag/v0.1.5) | Oct 4, 2026 | Wardrobe and seasonal outfits, new launch greeting |
-| [0.1.4](https://github.com/Louis-CFM/coucou/releases/tag/v0.1.4) | Oct 3, 2026 | Live diffs, GitHub pull requests, CI, reviews and contribution grid |
-| [0.1.3](https://github.com/Louis-CFM/coucou/releases/tag/v0.1.3) | Oct 3, 2026 | Answer Claude's questions from the notch, plan usage, local models, Apple Music |
-| [0.1.2](https://github.com/Louis-CFM/coucou/releases/tag/v0.1.2) | Oct 2, 2026 | Codex and Cursor support, the permission card stays until you answer |
-| [0.1.1](https://github.com/Louis-CFM/coucou/releases/tag/v0.1.1) | Oct 2, 2026 | Gemini and OpenAI chat, Linux build, more agents and pills, security hardening |
-| [0.1.0](https://github.com/Louis-CFM/coucou/releases/tag/v0.1.0) | Sep 27, 2026 | First release: Mochi, Claude Code sessions, chat, file drop, integrations |
+<!-- ===================== QUICK START ===================== -->
+<h2 align="center">🛠️ Quick Start & Build Instructions</h2>
 
-Windows and Linux builds are in Releases under the `windows-v*` and `linux-v*` tags; the newest Windows installer is always at [`windows-latest`](https://github.com/Louis-CFM/coucou/releases/tag/windows-latest).
+### 1. Prerequisites
+Ensure you have the following installed on your system:
+- **Rust toolchain** (`cargo`, `rustc`)
+- **Node.js** (v18+ recommended) & `npm`
+- **Linux Packages** (for Wayland layer-shell & GTK):
+  ```bash
+  sudo apt install libgtk-3-dev libgtk-layer-shell-dev playerctl  # Debian/Ubuntu
+  sudo pacman -S gtk3 gtk-layer-shell playerctl                  # Arch/Manjaro
+  ```
 
-## Demo mode
-
-No API key, no Claude Code, no setup — open **Settings → General → Demo**, click **Try demo mode**, and Coucou walks through a scripted session: a Claude Code session with live steps and a diff you can read, a permission request, an AskUserQuestion, a parallel Codex session, the GitHub, Stripe, Vercel and other integration pills loaded with sample data, the chat with a streamed response, the weekly recap with a share image you can actually save.
-
-Nothing is written to disk during the demo — no Keychain entries, no hook files, no recap history. Your real sessions and keys are saved and restored exactly as they were when you stop.
-
-## Install
-
-### App Store
-
-Coucou is coming to the **Mac App Store** and the **iPhone App Store**: one click to install, automatic updates, and the iPhone app pairs with your Mac through your iCloud account, with nothing to configure. The links will be here as soon as Apple publishes them.
-
-The App Store build of the Mac app runs in Apple's sandbox, so a few features stay in the GitHub build: Claude plan usage, the Apple Music pill and attaching the front window to the chat.
-
-### iPhone
-
-1. **Install Coucou on your iPhone** (iOS 18 or later): install [TestFlight](https://apps.apple.com/app/testflight/id899247664) from the App Store, then [Join the TestFlight beta](https://testflight.apple.com/join/3GpeHv2b). The beta is free; Apple limits it to 10,000 testers. The App Store version is coming soon.
-   *Apple is reviewing the beta: it opens within a day or two — if the link isn't accepting testers yet, check back soon.*
-2. **On your Mac**, with Coucou 0.1.9 or later: **Settings… → General → iPhone**, turn on **Show my agent sessions on my iPhone**, and **Move Mochi to my iPhone's Dynamic Island when my Mac is locked** for the Lock Screen.
-3. **Same Apple Account** in iCloud on the Mac and the iPhone. That's the whole link: no account, no pairing code.
-4. Open Coucou on the iPhone, allow notifications, and start a Claude Code session on the Mac.
-
-Everything else, troubleshooting included, is in [docs/IPHONE.md](docs/IPHONE.md).
-
-### Download for macOS
-
-1. Grab the latest `Coucou.zip` from [Releases](https://github.com/Louis-CFM/coucou/releases).
-2. Unzip and move **Coucou.app** to `/Applications`.
-3. Launch it, and click **Open** when macOS asks you to confirm. Updating from 0.1.0? macOS may ask you, once for each key you saved, to let Coucou use it: enter your Mac password and click **Always Allow**.
-
-### Windows
-
-Download **[Coucou-Windows.msi](https://github.com/Louis-CFM/coucou/releases/download/windows-latest/Coucou-Windows.msi)** or **[Coucou-Windows-setup.exe](https://github.com/Louis-CFM/coucou/releases/download/windows-latest/Coucou-Windows-setup.exe)** (Windows 10/11, always the newest version) and run it. You can also [build it from source](#build-from-source).
-
-**Windows will show a warning the first time — that's expected.** The installer isn't code-signed yet, so SmartScreen doesn't know the publisher:
-
-1. A **"Windows protected your PC"** screen appears, with *Publisher: Unknown publisher*.
-2. Click **More info** (*Informations complémentaires* in French). This reveals a **Run anyway** button.
-3. Click **Run anyway** (*Exécuter quand même*). The installer starts normally.
-
-This is only because the app isn't signed with a paid certificate yet. Coucou is open source, and Microsoft Defender scans the installer as clean.
-
-**Windows and Linux 0.2.0** catch up with the Mac: Codex, Copilot CLI, Muse Code and six more agents with approvals from the island, answers to Claude's questions, live diffs, GitHub pull requests and CI, plan usage, local models, the wardrobe, Mochi on the desktop, keyboard shortcuts, the weekly recap and 10 languages. See the [changelog](CHANGELOG.md).
-
-There is no notch on a PC, so the island slides out of the top edge of the screen
-instead of hiding inside one. See [`windows/README.md`](windows/README.md) for the
-rest of the differences.
-
-### Linux
-
-Download the newest Linux build from [Releases](https://github.com/Louis-CFM/coucou/releases) (`linux-v*` tags), x86_64 only for now.
-
-- **AppImage** (any distribution): `chmod +x Coucou-Linux-*.AppImage`, then run it.
-- **Debian / Ubuntu**: `sudo apt install ./Coucou-Linux-*.deb`
-- **Fedora / openSUSE**: `sudo dnf install ./Coucou-Linux-*.rpm`
-
-Check a download with `sha256sum -c SHA256SUMS --ignore-missing`. On Arch Linux, build it with the [PKGBUILD](linux/arch/PKGBUILD).
-
-The island sits on the top edge on compositors with layer-shell — COSMIC, KDE
-Plasma, Hyprland, Sway and other wlroots compositors. GNOME has no layer-shell,
-so there it runs through XWayland as a dock window at the top of the screen. See [`windows/README.md`](windows/README.md#linux).
-
-### Build from source
-
-**macOS** — requirements: macOS 15+, Xcode 16+, [XcodeGen](https://github.com/yonaskolb/XcodeGen).
-
+### 2. Build & Run
 ```bash
-brew install xcodegen
-git clone https://github.com/Louis-CFM/coucou.git
-cd coucou/NotchBuddy
-xcodegen
-open NotchBuddy.xcodeproj   # then ⌘R
-```
+# Clone the repository
+git clone https://github.com/rxut-04/Coucou.git
+cd Coucou/windows
 
-**Windows** — requirements: [Rust](https://rustup.rs), Node 20+, MSVC build tools.
-
-```powershell
-git clone https://github.com/Louis-CFM/coucou.git
-cd coucou/windows
+# Install frontend dependencies
 npm install
-npm run pack                # installer lands in windows/release/
+
+# Build release binary with Tauri
+npm run build
+npx tauri build --no-bundle --config src-tauri/tauri.linux.conf.json
+
+# Run Coucou
+./target/release/coucou
 ```
 
-**Linux** — requirements: [Rust](https://rustup.rs), Node 20+, and the WebKitGTK,
-gtk-layer-shell and appindicator development packages (Debian/Ubuntu names below).
+---
 
-```bash
-sudo apt install build-essential pkg-config \
-  libwebkit2gtk-4.1-dev libgtk-layer-shell-dev libayatana-appindicator3-dev \
-  librsvg2-dev libssl-dev libdbus-1-dev patchelf \
-  gstreamer1.0-plugins-base gstreamer1.0-plugins-good
-git clone https://github.com/Louis-CFM/coucou.git
-cd coucou/windows
-npm install
-npm run pack                # AppImage, .deb and .rpm land in windows/release/
-```
-
-## Setup
-
-Click the Coucou icon in the menu bar (macOS) or in the system tray (Windows, Linux) → **Settings…**
-
-| What | Why | Where the key goes |
-|---|---|---|
-| **Claude Code hooks** | live sessions and approvals | **Install hooks** — Coucou backs up `~/.claude/settings.json`, merges its hooks and shows you the diff before writing anything |
-| **Claude plan** *(macOS, GitHub build)* | Plan usage gauge in the notch header | **Install relay** in Settings → Agents → Plan usage, then enable "Show in the notch" |
-| **Gemini CLI hooks** *(macOS)* | Gemini CLI sessions in the island | **Install hooks** in Settings → Gemini CLI — backs up `~/.gemini/settings.json` |
-| **Antigravity (agy) hooks** *(macOS)* | agy sessions in the island | **Install hooks** in Settings → Antigravity — backs up `~/.gemini/config/hooks.json` |
-| **Anthropic API key** | chat and questions about files | Settings → Anthropic API · Keychain / Windows Credential Manager / Secret Service |
-| **Google AI API key** *(macOS)* | chat with Google AI (Gemini) | Settings → Chat — other providers · Keychain |
-| **OpenAI API key** *(macOS)* | chat with OpenAI | Settings → Chat — other providers · Keychain |
-| **Ollama server** *(macOS)* | chat with local models via Ollama | Settings → Chat → Local models → **Connect** |
-| **LM Studio server** *(macOS)* | chat with local models via LM Studio | Settings → Chat → Local models → **Connect** |
-| **iPhone** *(macOS)* | sessions, approvals, questions and Mochi on your iPhone | Settings → General → iPhone · your private iCloud, see [docs/IPHONE.md](docs/IPHONE.md) |
-| **Active pills** *(macOS)* | choose which tools and agents appear in the island | Settings → Active pills |
-| Stripe, n8n, GitHub, Vercel, Resend, Notion, Cal.com | the service pills | Keychain / Windows Credential Manager / Secret Service, all optional |
-
-If Coucou isn't running, the hook exits immediately: **Claude Code is never blocked.**
-
-### Supported agents
-
-| Agent | How it connects | Mac-only? |
-|---|---|---|
-| Claude Code | Settings → Claude Code → **Install hooks** | No |
-| Gemini CLI | Settings → Gemini CLI → **Install hooks** | Mac only |
-| Antigravity | Settings → Antigravity → **Install hooks** | Mac only |
-| Cursor | Hooks installed automatically alongside Claude Code | No |
-| Codex | `--agent codex` flag; Settings → Codex → **Install hooks** | No |
-| Copilot CLI | `--agent copilot` flag + camelCase events | No |
-| Muse Code | `--agent muse` flag | No |
-| OpenCode | Plugin — **Settings → OpenCode Plugin → Install** | Mac only |
-| Amp | Plugin — **Settings → Amp Plugin → Install** | Mac only |
-| Hermes | Plugin — **Settings → Agents → Hermes → Install** | Mac only |
-| Any other | `--agent <name>` flag; see [`docs/AGENTS.md`](docs/AGENTS.md) | No |
-
-OpenCode, Amp and Hermes use a plugin model rather than a hook command. Coucou installs the plugin file into `~/.config/opencode/plugins/`, `~/.config/amp/plugins/` and `~/.hermes/plugins/coucou/` respectively. On Windows and Linux the plugins start the `coucou-hook` relay directly — see [`windows/README.md`](windows/README.md#supported-agents).
-
-## Things to try
-
-| Do this | Mochi does that |
-|---|---|
-| Hover the notch (top edge on Windows and Linux) | peeks out and says hi 👋 |
-| Click it | opens |
-| Hover Mochi | blinks, eyes grow |
-| Click Mochi | squish + annoyed |
-| Click 3 times fast | 😵‍💫 dizzy for a few seconds |
-| Drag a file onto the island | turns into a box and swallows it |
-| Drag Mochi onto a window *(macOS)* | attaches it as context |
-| Click the model name above the chat box *(macOS)* | switch AI provider or model |
-
-## How it works
-
-**macOS**
-
-- **Island**: a borderless `NSPanel` hugging the notch, driven by a small state machine (`hidden → petit → home`).
-- **Character**: drawn in SwiftUI `Canvas` + `TimelineView` at 60 fps — squircle body, eyes projected on a sphere, spring animations. No Rive, no Lottie, no images.
-- **Claude Code**: a tiny `nb-hook` script receives hook events and forwards them over a Unix socket to the app. For approvals it waits for your click, then answers the hook.
-- **Integrations**: lightweight pollers, paused when nothing is watching.
-- **Declared pills**: `PillCatalog.swift` is the single source of truth — every pill (coding tools, agents, AI providers, services) is declared there with its ID, color and category.
-- **Sounds**: 28 short WAVs played through preloaded `AVAudioPlayer`s.
-
-The macOS app is native Swift 6 / SwiftUI / AppKit with **zero third-party dependencies**.
-
-**iPhone**
-
-- A native SwiftUI app sharing Mochi's engine, the pills and the diff engine with the Mac through `CoucouKit`.
-- The Mac publishes sessions, turns and services to a private CloudKit zone in your iCloud (sensitive fields encrypted with your iCloud keys); the iPhone reads them and writes back decisions, answers and instructions, which the Mac only applies when they match what it is waiting on.
-- Live Activities are started and updated by APNs pushes through [`relay/`](relay/), a stateless Cloudflare Worker that holds the APNs key and only sees the agent's name and state.
-
-**Windows**
-
-- A [Tauri 2](https://tauri.app) app (Rust + TypeScript): the island is a transparent, always-on-top window that never steals focus, Mochi is drawn in Canvas 2D with the same shapes, timings and sounds as on the Mac.
-- Claude Code hooks go through a tiny `coucou-hook.exe` and a named pipe; keys live in Windows Credential Manager.
-- Details and differences in [`windows/README.md`](windows/README.md).
-
-**Linux**
-
-- The same Tauri app as Windows. On Wayland the island is a gtk-layer-shell
-  overlay anchored to the top edge, and click-through is its input region.
-- Claude Code hooks go through the same `coucou-hook`, over a Unix socket in
-  `$XDG_RUNTIME_DIR`; keys live in the Secret Service.
-
-## Contributing
-
-Issues and PRs are very welcome — new integrations, new emotes, new sounds, bug fixes. See [CONTRIBUTING.md](CONTRIBUTING.md).
-
-Want to add or improve a translation? Open a PR with changes to `NotchBuddy/Resources/Localizable.xcstrings`.
-
-## Credits
-
-Built by [Louis Raillé](https://louisraille.fr) with Claude Code.
-Inspired by the notch-companion concepts shared by design studios — this project is independent and not affiliated with any of them.
-
-## License
-
-- **Code:** [MIT](LICENSE) — use it, fork it, learn from it, just keep the copyright notice.
-- **Name, Mochi character, icon, sounds and media:** © Louis Raillé, all rights reserved — see [LICENSE-ASSETS.md](LICENSE-ASSETS.md). Shipping your own fork? Give it your own name and character.
+<!-- ===================== SHORTCUTS & INTERACTION ===================== -->
+<h2 align="center">🎮 Keyboard Shortcuts & Interaction</h2>
 
 <div align="center">
 
-**If Mochi made you smile, a ⭐ helps a lot.**
+| Shortcut / Action | Functionality |
+| :--- | :--- |
+| **Move cursor to top-center edge** | Mochi peeks out and greets you 👋 |
+| **Click the compact island** | Smoothly expands the full Dynamic Island card |
+| **Click Mochi** | Squishes body + displays playful reaction |
+| **Click Mochi 3× fast** | 😵‍💫 Puts Mochi into dizzy state |
+| **Drag Mochi out of island** | Releases Mochi to float freely on your desktop |
+| `Ctrl+Alt+Space` | Opens AI chat assistant from any application |
+| `Ctrl+Alt+A` | Jumps to pending Claude / agent approval |
+| `Ctrl+Alt+T` | Brings active session terminal window to front |
+| `Ctrl+Alt+S` | Toggles island sound effects |
+| `Esc` | Collapses the island back to compact / hidden |
 
-[Website](https://louis-cfm.github.io/coucou/) · [Privacy](https://louis-cfm.github.io/coucou/privacy.html) · [Terms](https://louis-cfm.github.io/coucou/terms.html) · [Support](https://louis-cfm.github.io/coucou/support.html)
+</div>
 
+<br>
+
+---
+
+<!-- ===================== AUTHOR & CONNECT ===================== -->
+<h2 align="center">🤝 Let's Connect</h2>
+
+<p align="center">
+  <b>Om Raut</b> — B.E. Information Technology @ SVIT Nashik<br>
+  Building full-stack systems, computer vision models, and AI desktop companions.
+</p>
+
+<div align="center">
+  <a href="https://github.com/rxut-04">
+    <img src="https://img.shields.io/badge/GitHub-FF69B4?style=for-the-badge&logo=github&logoColor=white" alt="GitHub" />
+  </a>
+  <a href="https://linkedin.com/in/">
+    <img src="https://img.shields.io/badge/LinkedIn-FF69B4?style=for-the-badge&logo=linkedin&logoColor=white" alt="LinkedIn" />
+  </a>
+  <a href="mailto:oraut9025@gmail.com">
+    <img src="https://img.shields.io/badge/Email-FF69B4?style=for-the-badge&logo=gmail&logoColor=white" alt="Email" />
+  </a>
+</div>
+
+<br>
+
+<!-- ===================== FOOTER ===================== -->
+<div align="center">
+  <img src="https://capsule-render.vercel.app/api?type=waving&color=gradient&customColorList=6,2,12&height=160&section=footer&text=Mochi+is+always+watching+over+your+code!&fontSize=24&fontColor=ffffff&animation=twinkling&fontAlignY=68" width="100%" alt="Footer" />
 </div>
